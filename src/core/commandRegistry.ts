@@ -1,7 +1,14 @@
+export interface CommandOption {
+  name: string;
+  description: string;
+  type?: "boolean" | "string";
+}
+
 export interface Command {
   name: string;
   description?: string;
   alias?: string;
+  options?: CommandOption[];
   action: (
     args: string[],
     options: Record<string, string | boolean>

@@ -3,9 +3,6 @@ import {
   loginCommand,
   whoamiCommand,
   logoutCommand,
-  statusCommand,
-  reauthCommand,
-  doctorCommand,
 } from "./commands/index.js";
 
 export const KayModule = {
@@ -13,12 +10,18 @@ export const KayModule = {
     registry.register({
       name: "login",
       description: "Interactive browser-based login for Jira",
+      options: [
+        { name: "json", description: "Output in JSON format", type: "boolean" },
+      ],
       action: loginCommand,
     });
 
     registry.register({
       name: "whoami",
       description: "Prints the currently authenticated Jira user",
+      options: [
+        { name: "json", description: "Output in JSON format", type: "boolean" },
+      ],
       action: whoamiCommand,
     });
 
@@ -26,24 +29,6 @@ export const KayModule = {
       name: "logout",
       description: "Removes stored Jira credentials",
       action: logoutCommand,
-    });
-
-    registry.register({
-      name: "auth:status",
-      description: "Quick health check for Jira connection",
-      action: statusCommand,
-    });
-
-    registry.register({
-      name: "auth:reauth",
-      description: "Re-run the login flow with pre-filled values",
-      action: reauthCommand,
-    });
-
-    registry.register({
-      name: "auth:doctor",
-      description: "Troubleshooter that runs diagnostic checks",
-      action: doctorCommand,
     });
   },
 };

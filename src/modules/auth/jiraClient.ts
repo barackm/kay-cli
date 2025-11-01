@@ -1,159 +1,130 @@
 import { ConfigManager } from "../../core/configManager.js";
+import { MeResponse, RefreshTokenResponse } from "./types.js";
 
-interface JiraCredentials {
-  accessToken?: string;
-  email?: string;
-  apiToken?: string;
-  refreshToken?: string;
-  baseUrl: string;
-  expiresAt?: number;
-  authType: "basic" | "oauth";
-}
+const BACKEND_URL = "http://localhost:4000";
 
-interface JiraUser {
+interface SessionCredentials {
+  token: string;
+  refreshToken: string;
   accountId: string;
-  displayName: string;
-  emailAddress: string;
 }
 
 export class JiraClient {
-  private credentials: JiraCredentials | null = null;
+  private credentials: SessionCredentials | null = null;
 
   constructor() {
-    const creds = ConfigManager.get("jira") as JiraCredentials | undefined;
-    if (
-      creds &&
-      creds.baseUrl &&
-      (creds.accessToken || (creds.email && creds.apiToken))
-    ) {
+    const creds = ConfigManager.get("jira") as SessionCredentials | undefined;
+    if (creds && creds.token && creds.refreshToken) {
       this.credentials = creds;
     }
   }
 
-  private getAuthHeader(): string {
+  private getSessionToken(): string {
     if (!this.credentials) {
       throw new Error("Not authenticated. Run 'kay login' first.");
     }
-    if (
-      this.credentials.authType === "basic" &&
-      this.credentials.email &&
-      this.credentials.apiToken
-    ) {
-      const auth = Buffer.from(
-        `${this.credentials.email}:${this.credentials.apiToken}`
-      ).toString("base64");
-      return `Basic ${auth}`;
-    }
-    if (this.credentials.accessToken) {
-      return `Bearer ${this.credentials.accessToken}`;
-    }
-    throw new Error("Invalid credentials");
+    return this.credentials.token;
   }
 
-  async exchangeCodeForToken(
-    code: string,
-    redirectUri: string,
-    clientId: string,
-    codeVerifier: string,
-    baseUrl: string
-  ): Promise<{
-    access_token: string;
-    refresh_token?: string;
-    expires_in?: number;
-  }> {
-    const tokenUrl = new URL("/rest/oauth2/latest/token", baseUrl).toString();
-
-    const params = new URLSearchParams({
-      grant_type: "authorization_code",
-      client_id: clientId,
-      code,
-      redirect_uri: redirectUri,
-      code_verifier: codeVerifier,
-    });
-
-    const response = await fetch(tokenUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-      },
-      body: params.toString(),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(
-        `Token exchange failed: ${response.status} ${response.statusText} - ${error}`
-      );
-    }
-
-    return (await response.json()) as {
-      access_token: string;
-      refresh_token?: string;
-      expires_in?: number;
-    };
-  }
-
-  async getMyself(): Promise<JiraUser> {
+  private getRefreshToken(): string {
     if (!this.credentials) {
       throw new Error("Not authenticated. Run 'kay login' first.");
     }
+    return this.credentials.refreshToken;
+  }
 
-    const apiUrl = new URL(
-      "/rest/api/3/myself",
-      this.credentials.baseUrl
-    ).toString();
+  async refreshToken(): Promise<boolean> {
+    if (!this.credentials) {
+      return false;
+    }
 
-    const response = await fetch(apiUrl, {
+    try {
+      const response = await fetch(`${BACKEND_URL}/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          refresh_token: this.getRefreshToken(),
+        }),
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      const data = (await response.json()) as RefreshTokenResponse;
+
+      this.credentials = {
+        token: data.token,
+        refreshToken: data.refresh_token,
+        accountId: this.credentials.accountId,
+      };
+
+      ConfigManager.set("jira", this.credentials);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async makeAuthenticatedRequest(
+    url: string,
+    options: RequestInit = {}
+  ): Promise<Response> {
+    let response = await fetch(url, {
+      ...options,
       headers: {
-        Authorization: this.getAuthHeader(),
+        ...options.headers,
+        Authorization: `Bearer ${this.getSessionToken()}`,
         Accept: "application/json",
       },
     });
 
-    if (!response.ok) {
-      if (response.status === 401) {
+    if (response.status === 401) {
+      const refreshed = await this.refreshToken();
+      if (refreshed) {
+        response = await fetch(url, {
+          ...options,
+          headers: {
+            ...options.headers,
+            Authorization: `Bearer ${this.getSessionToken()}`,
+            Accept: "application/json",
+          },
+        });
+      } else {
         throw new Error(
-          "Invalid or expired credentials. Run 'kay login' to re-authenticate."
+          "Session expired and refresh failed. Run 'kay login' to re-authenticate."
         );
       }
+    }
+
+    return response;
+  }
+
+  async getMyself(): Promise<MeResponse> {
+    if (!this.credentials) {
+      throw new Error("Not authenticated. Run 'kay login' first.");
+    }
+
+    const response = await this.makeAuthenticatedRequest(
+      `${BACKEND_URL}/auth/me`
+    );
+
+    if (!response.ok) {
       throw new Error(
         `Request failed: ${response.status} ${response.statusText}`
       );
     }
 
-    return (await response.json()) as JiraUser;
+    return (await response.json()) as MeResponse;
   }
 
-  saveCredentials(
-    accessToken: string,
-    baseUrl: string,
-    refreshToken?: string,
-    expiresIn?: number
-  ): void {
-    const expiresAt = expiresIn ? Date.now() + expiresIn * 1000 : undefined;
-
+  saveSession(token: string, refreshToken: string, accountId: string): void {
     this.credentials = {
-      accessToken,
+      token,
       refreshToken,
-      baseUrl,
-      expiresAt,
-      authType: "oauth",
-    };
-
-    ConfigManager.set("jira", this.credentials);
-  }
-
-  saveCredentialsWithBasicAuth(
-    email: string,
-    apiToken: string,
-    baseUrl: string
-  ): void {
-    this.credentials = {
-      email,
-      apiToken,
-      baseUrl,
-      authType: "basic",
+      accountId,
     };
 
     ConfigManager.set("jira", this.credentials);
@@ -168,11 +139,11 @@ export class JiraClient {
     return this.credentials !== null;
   }
 
-  getBaseUrl(): string | null {
-    return this.credentials?.baseUrl || null;
+  getAccountId(): string | null {
+    return this.credentials?.accountId || null;
   }
 
-  getCredentials(): JiraCredentials | null {
+  getCredentials(): SessionCredentials | null {
     return this.credentials;
   }
 }

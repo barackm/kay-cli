@@ -8,6 +8,88 @@ import { CommandRegistry } from "./core/commandRegistry.js";
 
 const registry = new CommandRegistry();
 
+function showHelp(registry: CommandRegistry, commandName?: string) {
+  if (commandName) {
+    const command = registry.getCommand(commandName);
+    if (!command) {
+      Logger.error(`Command "${commandName}" not found`);
+      return;
+    }
+
+    console.log("");
+    console.log(pc.bold(pc.cyan(`${command.name}`)));
+    if (command.description) {
+      console.log(pc.gray(command.description));
+    }
+    console.log("");
+
+    console.log(pc.bold("Usage:"));
+    console.log(
+      `  ${pc.white(`kay ${command.name}`)} ${pc.gray("[options] [args]")}`
+    );
+    console.log("");
+
+    if (command.options && command.options.length > 0) {
+      console.log(pc.bold("Options:"));
+      command.options.forEach((opt) => {
+        const flag =
+          opt.type === "boolean" ? `--${opt.name}` : `--${opt.name} <value>`;
+        console.log(
+          `  ${pc.cyan(flag.padEnd(25))} ${pc.gray(opt.description)}`
+        );
+      });
+      console.log("");
+    }
+  } else {
+    console.clear();
+    console.log(
+      boxen(
+        pc.bold(pc.white("Welcome to Kay CLI — your intelligent assistant")),
+        {
+          padding: 1,
+          borderColor: "cyan",
+          borderStyle: "double",
+        }
+      )
+    );
+
+    console.log(pc.gray("Version:"), pc.white("1.0.0"));
+    console.log(pc.gray("Author:"), pc.white("KYG Trade AIS Team"));
+
+    const commands = registry.getAllCommands();
+
+    if (commands.length > 0) {
+      console.log("");
+      console.log(pc.bold(pc.cyan("✨ Available Commands:")));
+      console.log("");
+      commands.forEach((cmd) => {
+        console.log(
+          `  ${pc.bold(pc.white(cmd.name.padEnd(15)))} ${pc.gray(
+            cmd.description || "No description"
+          )}`
+        );
+      });
+    }
+
+    console.log("");
+    console.log(pc.bold(pc.cyan("💡 Usage:")));
+    console.log(
+      `  ${pc.white("kay <command>")}          ${pc.gray("Run a command")}`
+    );
+    console.log(
+      `  ${pc.white("kay help <command>")}     ${pc.gray(
+        "Show help for a command"
+      )}`
+    );
+    console.log(
+      `  ${pc.white("kay <command> --help")}   ${pc.gray(
+        "Show help for a command"
+      )}`
+    );
+    console.log("");
+  }
+}
+
 async function main() {
   p.intro(pc.bgCyan(pc.black("  Kay CLI  ")));
 
@@ -18,9 +100,16 @@ async function main() {
 
   const parsed = registry.parseArgs(process.argv);
 
-  // --------------------------
-  // 🌟 Show welcome screen
-  // --------------------------
+  if (parsed.command === "help") {
+    showHelp(registry, parsed.args[0]);
+    return;
+  }
+
+  if (parsed.options.help || parsed.options.h) {
+    showHelp(registry, parsed.command);
+    return;
+  }
+
   if (!parsed.command) {
     console.clear();
     console.log(
@@ -69,9 +158,6 @@ async function main() {
     return;
   }
 
-  // --------------------------
-  // 🚀 Run a specific command
-  // --------------------------
   const command = registry.getCommand(parsed.command);
   if (!command) {
     Logger.error(`Command "${parsed.command}" not found`);

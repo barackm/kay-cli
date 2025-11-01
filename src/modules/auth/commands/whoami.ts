@@ -20,28 +20,34 @@ export async function whoamiCommand(
     const s = p.spinner();
     s.start("Fetching user information...");
 
-    const user = await client.getMyself();
-    const baseUrl = client.getBaseUrl();
+    const meResponse = await client.getMyself();
+    const user = meResponse.data;
 
     s.stop();
 
     if (outputJson) {
-      console.log(
-        JSON.stringify({
-          email: user.emailAddress,
-          accountId: user.accountId,
-          displayName: user.displayName,
-          baseUrl,
-        })
-      );
+      console.log(JSON.stringify(meResponse, null, 2));
     } else {
       console.log("");
       Logger.info("Currently authenticated as:");
-      console.log(`  ${pc.bold(pc.cyan("Name:"))}      ${user.displayName}`);
-      console.log(`  ${pc.bold(pc.cyan("Email:"))}     ${user.emailAddress}`);
-      console.log(`  ${pc.bold(pc.cyan("Account ID:"))} ${user.accountId}`);
-      if (baseUrl) {
-        console.log(`  ${pc.bold(pc.cyan("Site URL:"))}  ${baseUrl}`);
+      console.log(`  ${pc.bold(pc.cyan("Name:"))}         ${user.name}`);
+      console.log(`  ${pc.bold(pc.cyan("Email:"))}        ${user.email}`);
+      console.log(
+        `  ${pc.bold(pc.cyan("Account Type:"))} ${user.account_type}`
+      );
+      console.log(
+        `  ${pc.bold(pc.cyan("Status:"))}       ${user.account_status}`
+      );
+
+      if (user.resources && user.resources.length > 0) {
+        console.log("");
+        Logger.info("Accessible Jira sites:");
+        user.resources.forEach((resource, index) => {
+          console.log(
+            `  ${pc.green(`${index + 1}.`)} ${pc.bold(resource.name)}`
+          );
+          console.log(`     ${pc.gray("URL:")} ${resource.url}`);
+        });
       }
       console.log("");
     }

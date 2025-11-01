@@ -32,7 +32,6 @@ export async function loadModules(registry: CommandRegistry) {
     try {
       const mod = await import(modulePath);
       if (mod.KayModule?.register) {
-        Logger.info(`Loading module: ${moduleName}`);
         mod.KayModule.register(registry);
       } else {
         Logger.warn(`Skipping ${moduleName}: invalid module format.`);
