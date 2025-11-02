@@ -4,6 +4,7 @@ import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
 import { JiraClient } from "../../auth/jiraClient.js";
 import { AskRequest, AskResponse, ErrorResponse } from "../types.js";
+import { renderMarkdown } from "../../../core/markdown.js";
 
 const BACKEND_URL = "http://localhost:4000";
 
@@ -90,9 +91,9 @@ async function sendConfirmation(
   return (await response.json()) as AskResponse;
 }
 
-function renderConversation(
+async function renderConversation(
   messages: Array<{ role: "user" | "assistant"; content: string }>
-): void {
+): Promise<void> {
   console.clear();
 
   console.log("");
@@ -107,27 +108,33 @@ function renderConversation(
 
   const conversationLines: string[] = [];
 
-  messages.forEach((msg) => {
+  for (const msg of messages) {
     if (msg.role === "user") {
       conversationLines.push(
         pc.bold(pc.green("You: ")) + pc.white(msg.content)
       );
     } else {
-      conversationLines.push(pc.bold(pc.cyan("Kay: ")) + pc.white(msg.content));
+      const renderedMarkdown = await renderMarkdown(msg.content);
+      const lines = renderedMarkdown.split("\n");
+      conversationLines.push(pc.bold(pc.cyan("Kay:")));
+      lines.forEach((line) => {
+        conversationLines.push(line);
+      });
     }
     conversationLines.push("");
-  });
+  }
 
   const conversationContent = conversationLines.join("\n");
 
   console.log(
     boxen(conversationContent, {
       padding: 1,
-      margin: 1,
+      margin: 0,
       borderColor: "cyan",
       borderStyle: "round",
       title: pc.bold(pc.cyan("Interactive Chat Mode")),
       titleAlignment: "center",
+      fullscreen: (width) => [width, 0],
     })
   );
 
@@ -145,7 +152,7 @@ async function interactiveChatMode(
 
   if (initialPrompt) {
     messages.push({ role: "user", content: initialPrompt });
-    renderConversation(messages);
+    await renderConversation(messages);
 
     const s = p.spinner();
     s.start("Kay is thinking...");
@@ -164,7 +171,7 @@ async function interactiveChatMode(
 
       const responseText = data.message || "(No response)";
       messages.push({ role: "assistant", content: responseText });
-      renderConversation(messages);
+      await renderConversation(messages);
 
       if (data.requires_confirmation && data.confirmation_token) {
         await handleConfirmation(client, data);
@@ -174,7 +181,7 @@ async function interactiveChatMode(
       throw error;
     }
   } else {
-    renderConversation(messages);
+    await renderConversation(messages);
   }
 
   while (true) {
@@ -219,7 +226,7 @@ async function interactiveChatMode(
     }
 
     messages.push({ role: "user", content: trimmedInput });
-    renderConversation(messages);
+    await renderConversation(messages);
 
     const s = p.spinner();
     s.start("Kay is thinking...");
@@ -238,7 +245,7 @@ async function interactiveChatMode(
 
       const responseText = data.message || "(No response)";
       messages.push({ role: "assistant", content: responseText });
-      renderConversation(messages);
+      await renderConversation(messages);
 
       if (data.requires_confirmation && data.confirmation_token) {
         await handleConfirmation(client, data);
@@ -246,7 +253,7 @@ async function interactiveChatMode(
     } catch (error) {
       s.stop();
       Logger.error((error as Error).message);
-      renderConversation(messages);
+      await renderConversation(messages);
     }
   }
 }
@@ -284,8 +291,11 @@ async function handleConfirmation(
     s.stop();
 
     console.log("");
+
+    const renderedMarkdown = await renderMarkdown(confirmationResult.message);
+
     console.log(
-      boxen(pc.white(confirmationResult.message), {
+      boxen(renderedMarkdown, {
         padding: { left: 2, right: 2, top: 0, bottom: 0 },
         margin: { left: 2 },
         borderColor: "cyan",
@@ -342,8 +352,11 @@ export async function askCommand(
       console.log(JSON.stringify(data, null, 2));
     } else {
       console.log("");
+
+      const renderedMarkdown = await renderMarkdown(data.message);
+
       console.log(
-        boxen(pc.white(data.message), {
+        boxen(renderedMarkdown, {
           padding: { left: 2, right: 2, top: 0, bottom: 0 },
           margin: { left: 2 },
           borderColor: "cyan",
