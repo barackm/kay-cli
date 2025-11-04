@@ -54,3 +54,34 @@ export interface RefreshTokenResponse {
   refresh_token: string;
   message: string;
 }
+
+export enum ServiceName {
+  KYG = "kyg",
+  JIRA = "jira",
+  CONFLUENCE = "confluence",
+  BITBUCKET = "bitbucket",
+}
+
+export interface ConnectResponse {
+  service: ServiceName;
+  session_id: string;
+  authorization_url?: string;
+  state?: string;
+  message: string;
+  session_reset?: boolean;
+  connected?: boolean;
+  // For email/password authentication (Kay service)
+  token?: string;
+  refresh_token?: string;
+  account_id?: string;
+}
+
+export interface ConnectionsStatusResponse {
+  connections: Record<string, boolean>;
+}
+
+export interface DisconnectResponse {
+  service: ServiceName;
+  connected: boolean;
+  message: string;
+}

@@ -2,8 +2,9 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
-import { JiraClient } from "../../auth/jiraClient.js";
+import { authClient } from "../../auth/authClient.js";
 import { HealthResponse } from "../types.js";
+import { createTable } from "../../../core/table.js";
 
 const BACKEND_URL = "http://localhost:4000";
 
@@ -44,15 +45,15 @@ export async function healthCommand(
   const outputJson = options.json === true || options.json === "true";
 
   try {
-    const client = new JiraClient();
-
     const s = p.spinner();
     s.start("Checking backend health...");
 
     let response: Response;
-    
-    if (client.isAuthenticated()) {
-      response = await client.makeAuthenticatedRequest(`${BACKEND_URL}/health`);
+
+    if (authClient.isAuthenticated()) {
+      response = await authClient.makeAuthenticatedRequest(
+        `${BACKEND_URL}/health`
+      );
     } else {
       response = await fetch(`${BACKEND_URL}/health`);
     }
@@ -74,11 +75,18 @@ export async function healthCommand(
         boxen(
           pc.bold("Kay Backend Health Status") +
             "\n" +
-            pc.gray(`Last checked: ${new Date(data.timestamp).toLocaleString()}`),
+            pc.gray(
+              `Last checked: ${new Date(data.timestamp).toLocaleString()}`
+            ),
           {
             padding: { left: 2, right: 2, top: 0, bottom: 0 },
             margin: { left: 2, right: 2 },
-            borderColor: data.status === "healthy" ? "green" : data.status === "degraded" ? "yellow" : "red",
+            borderColor:
+              data.status === "healthy"
+                ? "green"
+                : data.status === "degraded"
+                ? "yellow"
+                : "red",
             borderStyle: "round",
           }
         )
@@ -97,79 +105,82 @@ export async function healthCommand(
       console.log(pc.bold("  Services:"));
       console.log("");
 
-      console.log(
-        "    " +
-          getStatusIcon(data.services.database.status) +
-          " " +
-          pc.white("Database") +
-          " - " +
-          getStatusColor(data.services.database.status)(
-            data.services.database.status
-          )
-      );
-      if (data.services.database.message) {
-        console.log("      " + pc.gray(data.services.database.message));
+      const serviceRows: string[][] = [];
+
+      // Database
+      const dbStatus =
+        getStatusIcon(data.services.database.status) +
+        " " +
+        getStatusColor(data.services.database.status)(
+          data.services.database.status
+        );
+      const dbDetails = data.services.database.message || "-";
+      serviceRows.push(["Database", dbStatus, dbDetails]);
+
+      // OpenAI
+      const openaiStatus =
+        getStatusIcon(data.services.openai.status) +
+        " " +
+        getStatusColor(data.services.openai.status)(
+          data.services.openai.status
+        );
+      const openaiDetails =
+        [
+          data.services.openai.configured
+            ? pc.green("configured")
+            : pc.red("not configured"),
+          data.services.openai.message || "",
+        ]
+          .filter(Boolean)
+          .join(" • ") || "-";
+      serviceRows.push(["OpenAI", openaiStatus, openaiDetails]);
+
+      // MCP Jira
+      const mcpStatus =
+        getStatusIcon(data.services.mcp_jira.status) +
+        " " +
+        getStatusColor(data.services.mcp_jira.status)(
+          data.services.mcp_jira.status
+        );
+      const mcpDetails = [];
+      if (data.services.mcp_jira.enabled !== undefined) {
+        mcpDetails.push(
+          data.services.mcp_jira.enabled
+            ? pc.green("enabled")
+            : pc.gray("disabled")
+        );
       }
-
-      console.log(
-        "    " +
-          getStatusIcon(data.services.openai.status) +
-          " " +
-          pc.white("OpenAI") +
-          " - " +
-          getStatusColor(data.services.openai.status)(
-            data.services.openai.status
-          ) +
-          (data.services.openai.configured
-            ? pc.green(" (configured)")
-            : pc.red(" (not configured)"))
-      );
-      if (data.services.openai.message) {
-        console.log("      " + pc.gray(data.services.openai.message));
+      if (data.services.mcp_jira.connected !== undefined) {
+        mcpDetails.push(
+          data.services.mcp_jira.connected
+            ? pc.green("connected")
+            : pc.red("not connected")
+        );
       }
-
-      console.log(
-        "    " +
-          getStatusIcon(data.services.mcp_jira.status) +
-          " " +
-          pc.white("MCP Jira") +
-          " - " +
-          getStatusColor(data.services.mcp_jira.status)(
-            data.services.mcp_jira.status
-          ) +
-          (data.services.mcp_jira.enabled
-            ? pc.green(" (enabled)")
-            : pc.gray(" (disabled)"))
-      );
-
-      if (data.services.mcp_jira.enabled) {
-        const mcpDetails = [];
-        if (data.services.mcp_jira.connected !== undefined) {
-          mcpDetails.push(
-            data.services.mcp_jira.connected
-              ? pc.green("connected")
-              : pc.red("not connected")
-          );
-        }
-        if (data.services.mcp_jira.initialized !== undefined) {
-          mcpDetails.push(
-            data.services.mcp_jira.initialized
-              ? pc.green("initialized")
-              : pc.yellow("not initialized")
-          );
-        }
-        if (data.services.mcp_jira.toolCount !== undefined) {
-          mcpDetails.push(pc.cyan(`${data.services.mcp_jira.toolCount} tools`));
-        }
-        if (mcpDetails.length > 0) {
-          console.log("      " + mcpDetails.join(pc.gray(" • ")));
-        }
+      if (data.services.mcp_jira.initialized !== undefined) {
+        mcpDetails.push(
+          data.services.mcp_jira.initialized
+            ? pc.green("initialized")
+            : pc.yellow("not initialized")
+        );
       }
-
+      if (data.services.mcp_jira.toolCount !== undefined) {
+        mcpDetails.push(pc.cyan(`${data.services.mcp_jira.toolCount} tools`));
+      }
       if (data.services.mcp_jira.message) {
-        console.log("      " + pc.gray(data.services.mcp_jira.message));
+        mcpDetails.push(pc.gray(data.services.mcp_jira.message));
       }
+      serviceRows.push(["MCP Jira", mcpStatus, mcpDetails.join(" • ") || "-"]);
 
+      const servicesTable = createTable(
+        ["Service", "Status", "Details"],
+        serviceRows,
+        {
+          colWidths: [15, 20, 40],
+        }
+      );
+
+      console.log(servicesTable);
       console.log("");
 
       if (data.status === "healthy") {
@@ -195,4 +206,3 @@ export async function healthCommand(
     process.exit(1);
   }
 }
-

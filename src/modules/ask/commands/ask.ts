@@ -2,14 +2,13 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
-import { JiraClient } from "../../auth/jiraClient.js";
+import { authClient } from "../../auth/authClient.js";
 import { AskRequest, AskResponse, ErrorResponse } from "../types.js";
 import { renderMarkdown } from "../../../core/markdown.js";
 
 const BACKEND_URL = "http://localhost:4000";
 
 async function sendMessage(
-  client: JiraClient,
   prompt: string,
   interactive?: boolean,
   confirm?: boolean,
@@ -22,17 +21,20 @@ async function sendMessage(
     session_id: sessionId,
   };
 
-  const response = await client.makeAuthenticatedRequest(`${BACKEND_URL}/ask`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(requestBody),
-  });
+  const response = await authClient.makeAuthenticatedRequest(
+    `${BACKEND_URL}/ask`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    }
+  );
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("Session expired. Run 'kay login' to re-authenticate.");
+      throw new Error("Session expired. Please reconnect a service.");
     }
 
     const errorData = (await response
@@ -56,11 +58,10 @@ async function sendMessage(
 }
 
 async function sendConfirmation(
-  client: JiraClient,
   confirmationToken: string,
   approved: boolean
 ): Promise<AskResponse> {
-  const response = await client.makeAuthenticatedRequest(
+  const response = await authClient.makeAuthenticatedRequest(
     `${BACKEND_URL}/ask/confirm`,
     {
       method: "POST",
@@ -76,7 +77,7 @@ async function sendConfirmation(
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("Session expired. Run 'kay login' to re-authenticate.");
+      throw new Error("Session expired. Please reconnect a service.");
     }
 
     const errorData = (await response
@@ -143,7 +144,6 @@ async function renderConversation(
 }
 
 async function interactiveChatMode(
-  client: JiraClient,
   initialPrompt: string | null,
   confirm: boolean
 ): Promise<void> {
@@ -158,13 +158,7 @@ async function interactiveChatMode(
     s.start("Kay is thinking...");
 
     try {
-      const data = await sendMessage(
-        client,
-        initialPrompt,
-        true,
-        confirm,
-        sessionId
-      );
+      const data = await sendMessage(initialPrompt, true, confirm, sessionId);
       s.stop();
 
       sessionId = data.session_id;
@@ -174,7 +168,7 @@ async function interactiveChatMode(
       await renderConversation(messages);
 
       if (data.requires_confirmation && data.confirmation_token) {
-        await handleConfirmation(client, data);
+        await handleConfirmation(data);
       }
     } catch (error) {
       s.stop();
@@ -232,13 +226,7 @@ async function interactiveChatMode(
     s.start("Kay is thinking...");
 
     try {
-      const data = await sendMessage(
-        client,
-        trimmedInput,
-        true,
-        confirm,
-        sessionId
-      );
+      const data = await sendMessage(trimmedInput, true, confirm, sessionId);
       s.stop();
 
       sessionId = data.session_id;
@@ -248,7 +236,7 @@ async function interactiveChatMode(
       await renderConversation(messages);
 
       if (data.requires_confirmation && data.confirmation_token) {
-        await handleConfirmation(client, data);
+        await handleConfirmation(data);
       }
     } catch (error) {
       s.stop();
@@ -258,10 +246,7 @@ async function interactiveChatMode(
   }
 }
 
-async function handleConfirmation(
-  client: JiraClient,
-  response: AskResponse
-): Promise<void> {
+async function handleConfirmation(response: AskResponse): Promise<void> {
   if (!response.confirmation_token) {
     return;
   }
@@ -284,7 +269,6 @@ async function handleConfirmation(
 
   try {
     const confirmationResult = await sendConfirmation(
-      client,
       response.confirmation_token,
       shouldConfirm === true
     );
@@ -320,17 +304,17 @@ export async function askCommand(
   const outputJson = options.json === true || options.json === "true";
 
   try {
-    const client = new JiraClient();
-
-    if (!client.isAuthenticated()) {
-      Logger.error("Not authenticated. Run 'kay login' first.");
+    if (!authClient.isAuthenticated()) {
+      Logger.error(
+        "Not authenticated. Connect a service first with 'kay connect -s <service>'."
+      );
       process.exit(1);
     }
 
     const prompt = args.join(" ") || null;
 
     if (interactive) {
-      await interactiveChatMode(client, prompt, confirm);
+      await interactiveChatMode(prompt, confirm);
       return;
     }
 
@@ -344,7 +328,7 @@ export async function askCommand(
     const s = p.spinner();
     s.start("Thinking...");
 
-    const data = await sendMessage(client, prompt, false, confirm);
+    const data = await sendMessage(prompt, false, confirm);
 
     s.stop();
 
@@ -368,7 +352,7 @@ export async function askCommand(
 
       if (data.requires_confirmation && data.confirmation_token) {
         console.log("");
-        await handleConfirmation(client, data);
+        await handleConfirmation(data);
       }
 
       console.log("");
