@@ -6,7 +6,8 @@ import {
   DisconnectResponse,
   ConnectionsStatusResponse,
 } from "../types.js";
-import { authClient } from "../authClient.js";
+import { ConfigManager } from "../../../core/configManager.js";
+import { apiFetch } from "../../../core/apiClient.js";
 
 function getServiceDisplayName(service: ServiceName): string {
   const names: Record<ServiceName, string> = {
@@ -18,7 +19,6 @@ function getServiceDisplayName(service: ServiceName): string {
   return names[service] || service;
 }
 
-const BACKEND_URL = "http://localhost:4000";
 
 const SUPPORTED_SERVICES: ServiceName[] = [
   ServiceName.KYG,
@@ -65,7 +65,7 @@ export async function disconnectCommand(
       process.exit(1);
     }
 
-    const sessionId = authClient.getSessionId();
+    const sessionId = ConfigManager.get("session_id") as string | null;
 
     if (!sessionId) {
       Logger.warn("No session found. Please connect a service first.");
@@ -74,15 +74,15 @@ export async function disconnectCommand(
 
     // Check if service is actually connected
     try {
-      const statusResponse = await fetch(
-        `${BACKEND_URL}/connections?session_id=${sessionId}`
+      const statusResponse = await apiFetch(
+        `/connections?session_id=${sessionId}`
       );
 
       if (statusResponse.ok) {
         const statusData =
           (await statusResponse.json()) as ConnectionsStatusResponse;
         const connections = statusData.connections;
-        const isConnected = connections[service] === true;
+        const isConnected = connections[service]?.connected === true;
 
         if (!isConnected) {
           const serviceName = getServiceDisplayName(service);
@@ -124,13 +124,10 @@ export async function disconnectCommand(
     s.start(`Disconnecting from ${service}...`);
 
     try {
-      const response = await fetch(
-        `${BACKEND_URL}/connections/disconnect?service=${service}`,
+      const response = await apiFetch(
+        `/connections/disconnect?service=${service}`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify({ session_id: sessionId }),
         }
       );
@@ -149,15 +146,7 @@ export async function disconnectCommand(
       );
     } catch (error) {
       s.stop();
-      if (
-        error instanceof Error &&
-        (error.message.includes("fetch failed") ||
-          error.message.includes("ECONNREFUSED"))
-      ) {
-        throw new Error(
-          `Cannot connect to Kay backend at ${BACKEND_URL}. Make sure the backend is running.`
-        );
-      }
+      // Error handling is done by apiFetch
       throw error;
     }
   } catch (error) {

@@ -3,6 +3,7 @@ import {
   connectCommand,
   disconnectCommand,
   connectionsCommand,
+  whoamiCommand,
 } from "./commands/index.js";
 
 export const KayModule = {
@@ -51,6 +52,25 @@ export const KayModule = {
         { name: "json", description: "Output in JSON format", type: "boolean" },
       ],
       action: connectionsCommand,
+    });
+
+    registry.register({
+      name: "whoami",
+      description: "Show currently authenticated user information",
+      options: [
+        {
+          name: "service",
+          description: "Service to show user info for",
+          type: "string",
+        },
+        {
+          name: "s",
+          description: "Short form for service",
+          type: "string",
+        },
+        { name: "json", description: "Output in JSON format", type: "boolean" },
+      ],
+      action: whoamiCommand,
     });
   },
 };

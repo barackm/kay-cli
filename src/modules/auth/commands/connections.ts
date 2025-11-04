@@ -1,11 +1,14 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { Logger } from "../../../core/logger.js";
-import { ServiceName, ConnectionsStatusResponse } from "../types.js";
-import { authClient } from "../authClient.js";
+import {
+  ServiceName,
+  ConnectionsStatusResponse,
+  ServiceConnectionInfo,
+} from "../types.js";
+import { ConfigManager } from "../../../core/configManager.js";
+import { apiFetch } from "../../../core/apiClient.js";
 import { createTable } from "../../../core/table.js";
-
-const BACKEND_URL = "http://localhost:4000";
 
 const SUPPORTED_SERVICES: ServiceName[] = [
   ServiceName.KYG,
@@ -28,12 +31,24 @@ function getStatusDisplay(status: boolean): string {
   return status ? pc.green("Connected") : pc.gray("Not connected");
 }
 
+function formatUserInfo(user?: ServiceConnectionInfo["user"]): string {
+  if (!user) {
+    return pc.gray("-");
+  }
+
+  const parts: string[] = [];
+  if (user.name) parts.push(user.name);
+  if (user.email && user.email !== user.name) parts.push(`(${user.email})`);
+
+  return parts.length > 0 ? parts.join(" ") : pc.gray("-");
+}
+
 export async function connectionsCommand(
   args: string[],
   options: Record<string, string | boolean>
 ): Promise<void> {
   try {
-    const sessionId = authClient.getSessionId();
+    const sessionId = ConfigManager.get("session_id") as string | null;
     const outputJson = options.json === true || options.json === "true";
 
     if (!sessionId) {
@@ -43,15 +58,15 @@ export async function connectionsCommand(
       console.log("");
 
       // Show all services as not connected when no session
-      const headers = ["Service", "Status"];
+      const headers = ["Service", "Status", "User"];
       const rows = SUPPORTED_SERVICES.map((service) => {
         const displayName = getServiceDisplayName(service);
         const status = getStatusDisplay(false);
-        return [displayName, status];
+        return [displayName, status, pc.gray("-")];
       });
 
       const table = createTable(headers, rows, {
-        colWidths: [20, 20],
+        colWidths: [20, 20, 40],
       });
 
       console.log(table);
@@ -62,9 +77,7 @@ export async function connectionsCommand(
     const s = p.spinner();
     s.start("Fetching connection status...");
 
-    const response = await fetch(
-      `${BACKEND_URL}/connections?session_id=${sessionId}`
-    );
+    const response = await apiFetch(`/connections?session_id=${sessionId}`);
 
     s.stop();
 
@@ -78,11 +91,16 @@ export async function connectionsCommand(
     const connections = data.connections;
 
     if (outputJson) {
-      const result = SUPPORTED_SERVICES.map((service) => ({
-        service,
-        displayName: getServiceDisplayName(service),
-        connected: connections[service] === true,
-      }));
+      const result = SUPPORTED_SERVICES.map((service) => {
+        const conn = connections[service];
+        return {
+          service,
+          displayName: getServiceDisplayName(service),
+          connected: conn?.connected === true,
+          user: conn?.user,
+          metadata: conn?.metadata,
+        };
+      });
       console.log(JSON.stringify(result, null, 2));
       return;
     }
@@ -91,32 +109,25 @@ export async function connectionsCommand(
     console.log(pc.bold(pc.cyan("Service Connections")));
     console.log("");
 
-    const headers = ["Service", "Status"];
+    const headers = ["Service", "Status", "User"];
     const rows = SUPPORTED_SERVICES.map((service) => {
       const displayName = getServiceDisplayName(service);
-      const isConnected = connections[service] === true;
+      const conn = connections[service];
+      const isConnected = conn?.connected === true;
       const status = getStatusDisplay(isConnected);
-      return [displayName, status];
+      const userInfo = formatUserInfo(conn?.user);
+      return [displayName, status, userInfo];
     });
 
     const table = createTable(headers, rows, {
-      colWidths: [20, 20],
+      colWidths: [20, 20, 40],
     });
 
     console.log(table);
     console.log("");
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message.includes("fetch failed") ||
-        error.message.includes("ECONNREFUSED"))
-    ) {
-      Logger.error(
-        `Cannot connect to Kay backend at ${BACKEND_URL}. Make sure the backend is running.`
-      );
-    } else {
-      p.cancel((error as Error).message);
-    }
+    // Error handling is done by apiFetch
+    p.cancel((error as Error).message);
     process.exit(1);
   }
 }

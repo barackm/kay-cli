@@ -9,7 +9,7 @@ import {
   StatusResponse,
   ConnectionsStatusResponse,
 } from "../types.js";
-import { authClient } from "../authClient.js";
+import { apiFetch } from "../../../core/apiClient.js";
 
 function getServiceDisplayName(service: ServiceName): string {
   const names: Record<ServiceName, string> = {
@@ -21,7 +21,6 @@ function getServiceDisplayName(service: ServiceName): string {
   return names[service] || service;
 }
 
-const BACKEND_URL = "http://localhost:4000";
 const POLL_INTERVAL = 2000;
 const MAX_POLL_ATTEMPTS = 150;
 
@@ -93,20 +92,17 @@ async function connectKayWithCredentials(service: ServiceName): Promise<void> {
     const s = p.spinner();
     s.start("Authenticating...");
 
-    const sessionId = authClient.getSessionId();
+    const sessionId = ConfigManager.get("session_id") as string | null;
     const requestBody = {
       email: email.trim(),
       password: password,
       ...(sessionId ? { session_id: sessionId } : {}),
     };
 
-    const connectResponse = await fetch(
-      `${BACKEND_URL}/connections/connect?service=${service}`,
+    const connectResponse = await apiFetch(
+      `/connections/connect?service=${service}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify(requestBody),
       }
     );
@@ -126,7 +122,7 @@ async function connectKayWithCredentials(service: ServiceName): Promise<void> {
 
     // Always update session_id from response
     if (connectData.session_id) {
-      authClient.updateSessionId(connectData.session_id);
+      ConfigManager.set("session_id", connectData.session_id);
     }
 
     // Check if session was reset
@@ -135,36 +131,13 @@ async function connectKayWithCredentials(service: ServiceName): Promise<void> {
       console.log("");
     }
 
-    // If service is already connected, just show success
-    if (connectData.connected === true) {
-      Logger.success(connectData.message || "Kay connected successfully.");
-      return;
-    }
-
-    // If response includes tokens directly (email/password auth), save them
-    if (
-      connectData.token &&
-      connectData.refresh_token &&
-      connectData.account_id
-    ) {
-      const finalSessionId =
-        connectData.session_id || authClient.getSessionId() || "";
-      authClient.saveSession(
-        finalSessionId,
-        connectData.token,
-        connectData.refresh_token,
-        connectData.account_id
-      );
-
-      Logger.success("Kay connected successfully.");
-      return;
-    }
-
-    // If no tokens and not already connected, fall back to OAuth flow (shouldn't happen for Kay but handle it)
+    // For email/password auth, if we get a successful response, we're done
+    // Tokens will be handled automatically by apiFetch
     if (!connectData.authorization_url || !connectData.state) {
-      throw new Error(
-        `Invalid response from backend: missing authentication tokens or connection status`
+      Logger.success(
+        `${getServiceDisplayName(service)} connected successfully.`
       );
+      return;
     }
 
     Logger.info("Please authorize in your browser.");
@@ -181,8 +154,8 @@ async function connectKayWithCredentials(service: ServiceName): Promise<void> {
     let attempts = 0;
     while (attempts < MAX_POLL_ATTEMPTS) {
       try {
-        const statusResponse = await fetch(
-          `${BACKEND_URL}/auth/status/${connectData.state}`
+        const statusResponse = await apiFetch(
+          `/auth/status/${connectData.state}`
         );
 
         if (!statusResponse.ok) {
@@ -200,24 +173,15 @@ async function connectKayWithCredentials(service: ServiceName): Promise<void> {
         if ("status" in statusData && statusData.status === "completed") {
           spinner.stop();
 
-          const completed = statusData as {
-            status: "completed";
-            account_id: string;
-            token: string;
-            refresh_token: string;
-            message: string;
-          };
+          // Tokens are handled automatically by apiFetch
+          // Update session_id if provided
+          if (connectData.session_id) {
+            ConfigManager.set("session_id", connectData.session_id);
+          }
 
-          const finalSessionId =
-            connectData.session_id || authClient.getSessionId() || "";
-          authClient.saveSession(
-            finalSessionId,
-            completed.token,
-            completed.refresh_token,
-            completed.account_id
+          Logger.success(
+            `${getServiceDisplayName(service)} connected successfully.`
           );
-
-          Logger.success("Kay connected successfully.");
           return;
         }
 
@@ -231,16 +195,8 @@ async function connectKayWithCredentials(service: ServiceName): Promise<void> {
         const status = (statusData as any).status || "unknown";
         throw new Error(`Unexpected status: ${status}`);
       } catch (error) {
-        if (
-          error instanceof Error &&
-          (error.message.includes("fetch failed") ||
-            error.message.includes("ECONNREFUSED"))
-        ) {
-          spinner.stop();
-          throw new Error(
-            `Cannot connect to Kay backend at ${BACKEND_URL}. Make sure the backend is running.`
-          );
-        }
+        // Error handling is done by apiFetch
+        spinner.stop();
         throw error;
       }
     }
@@ -275,18 +231,18 @@ export async function connectCommand(
     }
 
     // Check if service is already connected
-    const sessionId = authClient.getSessionId();
+    const sessionId = ConfigManager.get("session_id") as string | null;
     if (sessionId) {
       try {
-        const statusResponse = await fetch(
-          `${BACKEND_URL}/connections?session_id=${sessionId}`
+        const statusResponse = await apiFetch(
+          `/connections?session_id=${sessionId}`
         );
 
         if (statusResponse.ok) {
           const statusData =
             (await statusResponse.json()) as ConnectionsStatusResponse;
           const connections = statusData.connections;
-          const isConnected = connections[service] === true;
+          const isConnected = connections[service]?.connected === true;
 
           if (isConnected) {
             const serviceName = getServiceDisplayName(service);
@@ -318,13 +274,10 @@ export async function connectCommand(
 
     const requestBody = sessionId ? { session_id: sessionId } : {};
 
-    const connectResponse = await fetch(
-      `${BACKEND_URL}/connections/connect?service=${service}`,
+    const connectResponse = await apiFetch(
+      `/connections/connect?service=${service}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify(requestBody),
       }
     );
@@ -339,7 +292,7 @@ export async function connectCommand(
 
     // Always update session_id from response (backend may have created a new one)
     if (connectData.session_id) {
-      authClient.updateSessionId(connectData.session_id);
+      ConfigManager.set("session_id", connectData.session_id);
     }
 
     // Check if session was reset and show warning
@@ -377,7 +330,7 @@ export async function connectCommand(
       while (attempts < MAX_POLL_ATTEMPTS) {
         try {
           const statusResponse = await fetch(
-            `${BACKEND_URL}/auth/status/${connectData.state}`
+            `/auth/status/${connectData.state}`
           );
 
           if (!statusResponse.ok) {
@@ -395,23 +348,11 @@ export async function connectCommand(
           if ("status" in statusData && statusData.status === "completed") {
             s.stop();
 
-            const completed = statusData as {
-              status: "completed";
-              account_id: string;
-              token: string;
-              refresh_token: string;
-              message: string;
-            };
-
-            // Use the session_id from connectData (may be updated if session was reset)
-            const finalSessionId =
-              connectData.session_id || authClient.getSessionId() || "";
-            authClient.saveSession(
-              finalSessionId,
-              completed.token,
-              completed.refresh_token,
-              completed.account_id
-            );
+            // Tokens are handled automatically by apiFetch
+            // Update session_id if provided
+            if (connectData.session_id) {
+              ConfigManager.set("session_id", connectData.session_id);
+            }
 
             const serviceName = getServiceDisplayName(service);
             Logger.success(`${serviceName} connected successfully.`);
@@ -435,7 +376,7 @@ export async function connectCommand(
           ) {
             s.stop();
             throw new Error(
-              `Cannot connect to Kay backend at ${BACKEND_URL}. Make sure the backend is running.`
+              `Cannot connect to Kay backend. Make sure the backend is running.`
             );
           }
           throw error;

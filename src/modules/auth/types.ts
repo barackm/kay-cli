@@ -42,8 +42,6 @@ export interface StatusPendingResponse {
 export interface StatusCompletedResponse {
   status: "completed";
   account_id: string;
-  token: string;
-  refresh_token: string;
   message: string;
 }
 
@@ -65,19 +63,35 @@ export enum ServiceName {
 export interface ConnectResponse {
   service: ServiceName;
   session_id: string;
-  authorization_url?: string;
-  state?: string;
+  authorization_url: string;
+  state: string;
   message: string;
   session_reset?: boolean;
-  connected?: boolean;
-  // For email/password authentication (Kay service)
-  token?: string;
-  refresh_token?: string;
-  account_id?: string;
+}
+
+export interface ServiceConnectionInfo {
+  connected: boolean;
+  user?: {
+    account_id?: string;
+    name?: string;
+    email?: string;
+    username?: string;
+    display_name?: string;
+    picture?: string;
+    avatar_url?: string;
+    account_type?: string;
+    account_status?: string;
+    [key: string]: unknown;
+  };
+  metadata?: {
+    url?: string;
+    workspace_id?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface ConnectionsStatusResponse {
-  connections: Record<string, boolean>;
+  connections: Record<string, ServiceConnectionInfo>;
 }
 
 export interface DisconnectResponse {

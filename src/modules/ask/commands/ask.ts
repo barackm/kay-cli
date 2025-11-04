@@ -2,11 +2,9 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
-import { authClient } from "../../auth/authClient.js";
+import { apiFetch } from "../../../core/apiClient.js";
 import { AskRequest, AskResponse, ErrorResponse } from "../types.js";
 import { renderMarkdown } from "../../../core/markdown.js";
-
-const BACKEND_URL = "http://localhost:4000";
 
 async function sendMessage(
   prompt: string,
@@ -21,27 +19,18 @@ async function sendMessage(
     session_id: sessionId,
   };
 
-  const response = await authClient.makeAuthenticatedRequest(
-    `${BACKEND_URL}/ask`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    }
-  );
+  const response = await apiFetch(`/ask`, {
+    method: "POST",
+    body: JSON.stringify(requestBody),
+  });
 
   if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error("Session expired. Please reconnect a service.");
-    }
-
     const errorData = (await response
       .json()
       .catch(() => ({}))) as ErrorResponse;
     throw new Error(
       errorData.error ||
+        errorData.message ||
         `Request failed: ${response.status} ${response.statusText}`
     );
   }
@@ -61,30 +50,21 @@ async function sendConfirmation(
   confirmationToken: string,
   approved: boolean
 ): Promise<AskResponse> {
-  const response = await authClient.makeAuthenticatedRequest(
-    `${BACKEND_URL}/ask/confirm`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        confirmation_token: confirmationToken,
-        approved,
-      }),
-    }
-  );
+  const response = await apiFetch(`/ask/confirm`, {
+    method: "POST",
+    body: JSON.stringify({
+      confirmation_token: confirmationToken,
+      approved,
+    }),
+  });
 
   if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error("Session expired. Please reconnect a service.");
-    }
-
     const errorData = (await response
       .json()
       .catch(() => ({}))) as ErrorResponse;
     throw new Error(
       errorData.error ||
+        errorData.message ||
         `Request failed: ${response.status} ${response.statusText}`
     );
   }
@@ -304,13 +284,6 @@ export async function askCommand(
   const outputJson = options.json === true || options.json === "true";
 
   try {
-    if (!authClient.isAuthenticated()) {
-      Logger.error(
-        "Not authenticated. Connect a service first with 'kay connect -s <service>'."
-      );
-      process.exit(1);
-    }
-
     const prompt = args.join(" ") || null;
 
     if (interactive) {
@@ -358,17 +331,8 @@ export async function askCommand(
       console.log("");
     }
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message.includes("fetch failed") ||
-        error.message.includes("ECONNREFUSED"))
-    ) {
-      Logger.error(
-        `Cannot connect to Kay backend at ${BACKEND_URL}. Make sure the backend is running.`
-      );
-    } else {
-      Logger.error((error as Error).message);
-    }
+    // Error handling is done by apiFetch
+    Logger.error((error as Error).message);
     process.exit(1);
   }
 }

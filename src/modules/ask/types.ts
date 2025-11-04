@@ -28,6 +28,7 @@ export interface ConfirmationRequest {
 }
 
 export interface ErrorResponse {
-  error: string;
+  error?: string;
+  message?: string;
   details?: string;
 }

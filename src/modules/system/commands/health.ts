@@ -2,11 +2,9 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
-import { authClient } from "../../auth/authClient.js";
+import { apiFetch } from "../../../core/apiClient.js";
 import { HealthResponse } from "../types.js";
 import { createTable } from "../../../core/table.js";
-
-const BACKEND_URL = "http://localhost:4000";
 
 function getStatusIcon(status: string): string {
   switch (status) {
@@ -48,15 +46,7 @@ export async function healthCommand(
     const s = p.spinner();
     s.start("Checking backend health...");
 
-    let response: Response;
-
-    if (authClient.isAuthenticated()) {
-      response = await authClient.makeAuthenticatedRequest(
-        `${BACKEND_URL}/health`
-      );
-    } else {
-      response = await fetch(`${BACKEND_URL}/health`);
-    }
+    const response = await apiFetch(`/health`);
 
     if (!response.ok) {
       throw new Error(
@@ -192,17 +182,8 @@ export async function healthCommand(
       }
     }
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message.includes("fetch failed") ||
-        error.message.includes("ECONNREFUSED"))
-    ) {
-      Logger.error(
-        `Cannot connect to Kay backend at ${BACKEND_URL}. Make sure the backend is running.`
-      );
-    } else {
-      Logger.error((error as Error).message);
-    }
+    // Error handling is done by apiFetch
+    Logger.error((error as Error).message);
     process.exit(1);
   }
 }
