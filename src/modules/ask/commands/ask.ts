@@ -3,23 +3,19 @@ import pc from "picocolors";
 import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
 import { apiFetch } from "../../../core/apiClient.js";
-import { AskRequest, AskResponse, ErrorResponse } from "../types.js";
+import { ChatRequest, ChatResponse, ErrorResponse } from "../types.js";
 import { renderMarkdown } from "../../../core/markdown.js";
+import { authClient } from "../../auth/authClient.js";
 
 async function sendMessage(
-  prompt: string,
-  interactive?: boolean,
-  confirm?: boolean,
-  sessionId?: string
-): Promise<AskResponse> {
-  const requestBody: AskRequest = {
-    prompt,
-    interactive,
-    confirm,
-    session_id: sessionId,
-  };
+  message: string,
+  messages?: Array<{ role: "user" | "assistant"; content: string }>,
+  interactive = false
+): Promise<ChatResponse> {
+  const requestBody: ChatRequest = messages ? { messages } : { message };
 
-  const response = await apiFetch(`/ask`, {
+  const queryParam = interactive ? "?interactive=true" : "";
+  const response = await apiFetch(`/ask${queryParam}`, {
     method: "POST",
     body: JSON.stringify(requestBody),
   });
@@ -35,41 +31,53 @@ async function sendMessage(
     );
   }
 
-  const data = (await response.json()) as AskResponse;
+  const contentType = response.headers.get("content-type") || "";
 
-  if (!data.message) {
-    console.log(pc.yellow("\n⚠️  Debug: Received response structure:"));
-    console.log(JSON.stringify(data, null, 2));
-    throw new Error("Invalid response structure from backend");
+  if (interactive && contentType.includes("text/event-stream")) {
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let fullResponse = "";
+
+    if (!reader) {
+      throw new Error("Failed to read streaming response");
+    }
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") {
+            return { response: fullResponse };
+          }
+          if (data) {
+            try {
+              const parsed = JSON.parse(data) as ChatResponse;
+              if (parsed.response) {
+                process.stdout.write(parsed.response);
+                fullResponse += parsed.response;
+              }
+            } catch {
+              if (data) {
+                process.stdout.write(data);
+                fullResponse += data;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return { response: fullResponse };
   }
 
+  const data = (await response.json()) as ChatResponse;
   return data;
-}
-
-async function sendConfirmation(
-  confirmationToken: string,
-  approved: boolean
-): Promise<AskResponse> {
-  const response = await apiFetch(`/ask/confirm`, {
-    method: "POST",
-    body: JSON.stringify({
-      confirmation_token: confirmationToken,
-      approved,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = (await response
-      .json()
-      .catch(() => ({}))) as ErrorResponse;
-    throw new Error(
-      errorData.error ||
-        errorData.message ||
-        `Request failed: ${response.status} ${response.statusText}`
-    );
-  }
-
-  return (await response.json()) as AskResponse;
 }
 
 async function renderConversation(
@@ -124,10 +132,8 @@ async function renderConversation(
 }
 
 async function interactiveChatMode(
-  initialPrompt: string | null,
-  confirm: boolean
+  initialPrompt: string | null
 ): Promise<void> {
-  let sessionId: string | undefined;
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
 
   if (initialPrompt) {
@@ -138,18 +144,12 @@ async function interactiveChatMode(
     s.start("Kay is thinking...");
 
     try {
-      const data = await sendMessage(initialPrompt, true, confirm, sessionId);
+      const data = await sendMessage(initialPrompt, messages, true);
       s.stop();
 
-      sessionId = data.session_id;
-
-      const responseText = data.message || "(No response)";
+      const responseText = data.response || "(No response)";
       messages.push({ role: "assistant", content: responseText });
       await renderConversation(messages);
-
-      if (data.requires_confirmation && data.confirmation_token) {
-        await handleConfirmation(data);
-      }
     } catch (error) {
       s.stop();
       throw error;
@@ -206,71 +206,17 @@ async function interactiveChatMode(
     s.start("Kay is thinking...");
 
     try {
-      const data = await sendMessage(trimmedInput, true, confirm, sessionId);
+      const data = await sendMessage("", messages, true);
       s.stop();
 
-      sessionId = data.session_id;
-
-      const responseText = data.message || "(No response)";
+      const responseText = data.response || "(No response)";
       messages.push({ role: "assistant", content: responseText });
       await renderConversation(messages);
-
-      if (data.requires_confirmation && data.confirmation_token) {
-        await handleConfirmation(data);
-      }
     } catch (error) {
       s.stop();
       Logger.error((error as Error).message);
       await renderConversation(messages);
     }
-  }
-}
-
-async function handleConfirmation(response: AskResponse): Promise<void> {
-  if (!response.confirmation_token) {
-    return;
-  }
-
-  console.log(pc.yellow("⚠️  This action requires confirmation:"));
-  console.log("");
-
-  const shouldConfirm = await p.confirm({
-    message: "Do you want to proceed?",
-    initialValue: false,
-  });
-
-  if (p.isCancel(shouldConfirm)) {
-    Logger.info("Action cancelled by user");
-    return;
-  }
-
-  const s = p.spinner();
-  s.start(shouldConfirm ? "Confirming action..." : "Cancelling action...");
-
-  try {
-    const confirmationResult = await sendConfirmation(
-      response.confirmation_token,
-      shouldConfirm === true
-    );
-    s.stop();
-
-    console.log("");
-
-    const renderedMarkdown = await renderMarkdown(confirmationResult.message);
-
-    console.log(
-      boxen(renderedMarkdown, {
-        padding: { left: 2, right: 2, top: 0, bottom: 0 },
-        margin: { left: 2 },
-        borderColor: "cyan",
-        borderStyle: "round",
-        title: pc.bold(pc.cyan("Kay")),
-        titleAlignment: "left",
-      })
-    );
-  } catch (error) {
-    s.stop();
-    Logger.error((error as Error).message);
   }
 }
 
@@ -280,14 +226,18 @@ export async function askCommand(
 ): Promise<void> {
   const interactive =
     options.interactive === true || options.interactive === "true";
-  const confirm = options.confirm === true || options.confirm === "true";
   const outputJson = options.json === true || options.json === "true";
 
   try {
+    if (!authClient.isAuthenticated()) {
+      Logger.error("Not authenticated. Please run 'kay connect' to login.");
+      process.exit(1);
+    }
+
     const prompt = args.join(" ") || null;
 
     if (interactive) {
-      await interactiveChatMode(prompt, confirm);
+      await interactiveChatMode(prompt);
       return;
     }
 
@@ -301,7 +251,7 @@ export async function askCommand(
     const s = p.spinner();
     s.start("Thinking...");
 
-    const data = await sendMessage(prompt, false, confirm);
+    const data = await sendMessage(prompt, undefined, false);
 
     s.stop();
 
@@ -310,7 +260,7 @@ export async function askCommand(
     } else {
       console.log("");
 
-      const renderedMarkdown = await renderMarkdown(data.message);
+      const renderedMarkdown = await renderMarkdown(data.response);
 
       console.log(
         boxen(renderedMarkdown, {
@@ -323,15 +273,9 @@ export async function askCommand(
         })
       );
 
-      if (data.requires_confirmation && data.confirmation_token) {
-        console.log("");
-        await handleConfirmation(data);
-      }
-
       console.log("");
     }
   } catch (error) {
-    // Error handling is done by apiFetch
     Logger.error((error as Error).message);
     process.exit(1);
   }

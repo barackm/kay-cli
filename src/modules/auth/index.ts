@@ -1,5 +1,7 @@
 import { CommandRegistry } from "../../core/commandRegistry.js";
 import {
+  loginCommand,
+  logoutCommand,
   connectCommand,
   disconnectCommand,
   connectionsCommand,
@@ -8,6 +10,18 @@ import {
 
 export const KayModule = {
   register: (registry: CommandRegistry) => {
+    registry.register({
+      name: "login",
+      description: "Login to Kay backend",
+      action: loginCommand,
+    });
+
+    registry.register({
+      name: "logout",
+      description: "Logout from Kay backend",
+      action: logoutCommand,
+    });
+
     registry.register({
       name: "connect",
       description: "Connect to a service",

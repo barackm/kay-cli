@@ -1,50 +1,14 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { Logger } from "../../../core/logger.js";
-import {
-  ServiceName,
-  DisconnectResponse,
-  ConnectionsStatusResponse,
-} from "../types.js";
-import { ConfigManager } from "../../../core/configManager.js";
+import { ServiceName, DeleteResponse } from "../types.js";
 import { apiFetch } from "../../../core/apiClient.js";
-
-function getServiceDisplayName(service: ServiceName): string {
-  const names: Record<ServiceName, string> = {
-    [ServiceName.KYG]: "KYG Trade",
-    [ServiceName.JIRA]: "Jira",
-    [ServiceName.CONFLUENCE]: "Confluence",
-    [ServiceName.BITBUCKET]: "Bitbucket",
-  };
-  return names[service] || service;
-}
-
-
-const SUPPORTED_SERVICES: ServiceName[] = [
-  ServiceName.KYG,
-  ServiceName.JIRA,
-  ServiceName.CONFLUENCE,
-  ServiceName.BITBUCKET,
-];
-
-function validateService(
-  service: string | boolean | undefined
-): ServiceName | null {
-  if (!service || service === true) {
-    return null;
-  }
-
-  const normalized = service.toLowerCase();
-  const serviceEnum = Object.values(ServiceName).find(
-    (s) => s === normalized
-  ) as ServiceName | undefined;
-
-  if (serviceEnum && SUPPORTED_SERVICES.includes(serviceEnum)) {
-    return serviceEnum;
-  }
-
-  return null;
-}
+import {
+  getServiceDisplayName,
+  validateService,
+  SUPPORTED_SERVICES,
+} from "../utils/service.js";
+import { checkServiceConnectionStatus } from "../utils/connection.js";
 
 export async function disconnectCommand(
   args: string[],
@@ -65,42 +29,18 @@ export async function disconnectCommand(
       process.exit(1);
     }
 
-    const sessionId = ConfigManager.get("session_id") as string | null;
-
-    if (!sessionId) {
-      Logger.warn("No session found. Please connect a service first.");
-      return;
-    }
-
-    // Check if service is actually connected
-    try {
-      const statusResponse = await apiFetch(
-        `/connections?session_id=${sessionId}`
+    const isConnected = await checkServiceConnectionStatus(service);
+    if (!isConnected) {
+      const serviceName = getServiceDisplayName(service);
+      Logger.warn(`${serviceName} is not connected.`);
+      console.log("");
+      console.log(
+        pc.gray("Run ") +
+          pc.cyan("kay connections") +
+          pc.gray(" to see which services are connected.")
       );
-
-      if (statusResponse.ok) {
-        const statusData =
-          (await statusResponse.json()) as ConnectionsStatusResponse;
-        const connections = statusData.connections;
-        const isConnected = connections[service]?.connected === true;
-
-        if (!isConnected) {
-          const serviceName = getServiceDisplayName(service);
-          Logger.warn(`${serviceName} is not connected.`);
-          console.log("");
-          console.log(
-            pc.gray("Run ") +
-              pc.cyan("kay connections") +
-              pc.gray(" to see which services are connected.")
-          );
-          console.log("");
-          return;
-        }
-      }
-    } catch (error) {
-      // If we can't check connection status, continue with disconnect attempt
-      // This handles cases where backend is not available or network issues
-      // The backend will handle the validation anyway
+      console.log("");
+      return;
     }
 
     const serviceName = getServiceDisplayName(service);
@@ -121,16 +61,12 @@ export async function disconnectCommand(
     }
 
     const s = p.spinner();
-    s.start(`Disconnecting from ${service}...`);
+    s.start(`Disconnecting from ${serviceName}...`);
 
     try {
-      const response = await apiFetch(
-        `/connections/disconnect?service=${service}`,
-        {
-          method: "POST",
-          body: JSON.stringify({ session_id: sessionId }),
-        }
-      );
+      const response = await apiFetch(`/mcp/servers/${service}`, {
+        method: "DELETE",
+      });
 
       s.stop();
 
@@ -140,13 +76,12 @@ export async function disconnectCommand(
         );
       }
 
-      const data = (await response.json()) as DisconnectResponse;
+      const data = (await response.json()) as DeleteResponse;
       Logger.success(
         data.message || `${serviceName} disconnected successfully.`
       );
     } catch (error) {
       s.stop();
-      // Error handling is done by apiFetch
       throw error;
     }
   } catch (error) {

@@ -1,46 +1,21 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { Logger } from "../../../core/logger.js";
-import {
-  ServiceName,
-  ConnectionsStatusResponse,
-  ServiceConnectionInfo,
-} from "../types.js";
-import { ConfigManager } from "../../../core/configManager.js";
+import { ServiceName, ServerStatusResponse } from "../types.js";
 import { apiFetch } from "../../../core/apiClient.js";
 import { createTable } from "../../../core/table.js";
-
-const SUPPORTED_SERVICES: ServiceName[] = [
-  ServiceName.KYG,
-  ServiceName.JIRA,
-  ServiceName.CONFLUENCE,
-  ServiceName.BITBUCKET,
-];
-
-function getServiceDisplayName(service: ServiceName): string {
-  const names: Record<ServiceName, string> = {
-    [ServiceName.KYG]: "KYG Trade",
-    [ServiceName.JIRA]: "Jira",
-    [ServiceName.CONFLUENCE]: "Confluence",
-    [ServiceName.BITBUCKET]: "Bitbucket",
-  };
-  return names[service] || service;
-}
+import { SUPPORTED_SERVICES, getServiceDisplayName } from "../utils/service.js";
+import { authClient } from "../authClient.js";
 
 function getStatusDisplay(status: boolean): string {
   return status ? pc.green("Connected") : pc.gray("Not connected");
 }
 
-function formatUserInfo(user?: ServiceConnectionInfo["user"]): string {
-  if (!user) {
+function formatTools(tools: ServerStatusResponse["tools"]): string {
+  if (!tools || tools.length === 0) {
     return pc.gray("-");
   }
-
-  const parts: string[] = [];
-  if (user.name) parts.push(user.name);
-  if (user.email && user.email !== user.name) parts.push(`(${user.email})`);
-
-  return parts.length > 0 ? parts.join(" ") : pc.gray("-");
+  return pc.cyan(`${tools.length} tool${tools.length !== 1 ? "s" : ""}`);
 }
 
 export async function connectionsCommand(
@@ -48,17 +23,13 @@ export async function connectionsCommand(
   options: Record<string, string | boolean>
 ): Promise<void> {
   try {
-    const sessionId = ConfigManager.get("session_id") as string | null;
     const outputJson = options.json === true || options.json === "true";
 
-    if (!sessionId) {
-      Logger.warn(
-        "No active session found. Connect a service first with 'kay connect -s <service>'."
-      );
+    if (!authClient.isAuthenticated()) {
+      Logger.warn("Not authenticated. Please run 'kay connect' to login.");
       console.log("");
 
-      // Show all services as not connected when no session
-      const headers = ["Service", "Status", "User"];
+      const headers = ["Service", "Status", "Tools"];
       const rows = SUPPORTED_SERVICES.map((service) => {
         const displayName = getServiceDisplayName(service);
         const status = getStatusDisplay(false);
@@ -77,28 +48,33 @@ export async function connectionsCommand(
     const s = p.spinner();
     s.start("Fetching connection status...");
 
-    const response = await apiFetch(`/connections?session_id=${sessionId}`);
+    const statuses: Record<string, ServerStatusResponse> = {};
+
+    for (const service of SUPPORTED_SERVICES) {
+      try {
+        const response = await apiFetch(`/mcp/servers/${service}/status`);
+        if (response.ok) {
+          statuses[service] = (await response.json()) as ServerStatusResponse;
+        }
+      } catch {
+        statuses[service] = {
+          serverName: service,
+          connected: false,
+          tools: [],
+        };
+      }
+    }
 
     s.stop();
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch connection status: ${response.status} ${response.statusText}`
-      );
-    }
-
-    const data = (await response.json()) as ConnectionsStatusResponse;
-    const connections = data.connections;
-
     if (outputJson) {
       const result = SUPPORTED_SERVICES.map((service) => {
-        const conn = connections[service];
+        const status = statuses[service];
         return {
           service,
           displayName: getServiceDisplayName(service),
-          connected: conn?.connected === true,
-          user: conn?.user,
-          metadata: conn?.metadata,
+          connected: status?.connected === true,
+          tools: status?.tools || [],
         };
       });
       console.log(JSON.stringify(result, null, 2));
@@ -106,17 +82,17 @@ export async function connectionsCommand(
     }
 
     console.log("");
-    console.log(pc.bold(pc.cyan("Service Connections")));
+    console.log(pc.bold(pc.cyan("MCP Server Connections")));
     console.log("");
 
-    const headers = ["Service", "Status", "User"];
+    const headers = ["Service", "Status", "Tools"];
     const rows = SUPPORTED_SERVICES.map((service) => {
       const displayName = getServiceDisplayName(service);
-      const conn = connections[service];
-      const isConnected = conn?.connected === true;
-      const status = getStatusDisplay(isConnected);
-      const userInfo = formatUserInfo(conn?.user);
-      return [displayName, status, userInfo];
+      const status = statuses[service];
+      const isConnected = status?.connected === true;
+      const statusDisplay = getStatusDisplay(isConnected);
+      const toolsDisplay = formatTools(status?.tools);
+      return [displayName, statusDisplay, toolsDisplay];
     });
 
     const table = createTable(headers, rows, {
@@ -126,7 +102,6 @@ export async function connectionsCommand(
     console.log(table);
     console.log("");
   } catch (error) {
-    // Error handling is done by apiFetch
     p.cancel((error as Error).message);
     process.exit(1);
   }

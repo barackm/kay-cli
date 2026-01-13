@@ -3,37 +3,19 @@ import pc from "picocolors";
 import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
 import { apiFetch } from "../../../core/apiClient.js";
-import { HealthResponse } from "../types.js";
+import { ServerStatus } from "../types.js";
 import { createTable } from "../../../core/table.js";
+import { SUPPORTED_SERVICES } from "../../auth/utils/service.js";
+import { ServiceName } from "../../auth/types.js";
+import { getServiceDisplayName } from "../../auth/utils/service.js";
+import { authClient } from "../../auth/authClient.js";
 
-function getStatusIcon(status: string): string {
-  switch (status) {
-    case "healthy":
-      return pc.green("●");
-    case "degraded":
-      return pc.yellow("●");
-    case "unhealthy":
-      return pc.red("●");
-    case "disabled":
-      return pc.gray("○");
-    default:
-      return pc.gray("?");
-  }
+function getStatusIcon(connected: boolean): string {
+  return connected ? pc.green("●") : pc.red("○");
 }
 
-function getStatusColor(status: string): (text: string) => string {
-  switch (status) {
-    case "healthy":
-      return pc.green;
-    case "degraded":
-      return pc.yellow;
-    case "unhealthy":
-      return pc.red;
-    case "disabled":
-      return pc.gray;
-    default:
-      return pc.white;
-  }
+function getStatusColor(connected: boolean): (text: string) => string {
+  return connected ? pc.green : pc.red;
 }
 
 export async function healthCommand(
@@ -41,148 +23,172 @@ export async function healthCommand(
   options: Record<string, string | boolean>
 ): Promise<void> {
   const outputJson = options.json === true || options.json === "true";
+  const serverName = options.server as string | undefined;
 
   try {
-    const s = p.spinner();
-    s.start("Checking backend health...");
-
-    const response = await apiFetch(`/health`);
-
-    if (!response.ok) {
-      throw new Error(
-        `Health check failed: ${response.status} ${response.statusText}`
-      );
+    if (!authClient.isAuthenticated()) {
+      Logger.error("Not authenticated. Please run 'kay connect' to login.");
+      process.exit(1);
     }
 
-    const data = (await response.json()) as HealthResponse;
-    s.stop();
+    const s = p.spinner();
+    s.start("Checking server status...");
 
-    if (outputJson) {
-      console.log(JSON.stringify(data, null, 2));
-    } else {
-      console.log("");
-      console.log(
-        boxen(
-          pc.bold("Kay Backend Health Status") +
-            "\n" +
-            pc.gray(
-              `Last checked: ${new Date(data.timestamp).toLocaleString()}`
-            ),
-          {
-            padding: { left: 2, right: 2, top: 0, bottom: 0 },
-            margin: { left: 2, right: 2 },
-            borderColor:
-              data.status === "healthy"
-                ? "green"
-                : data.status === "degraded"
-                ? "yellow"
-                : "red",
-            borderStyle: "round",
-          }
-        )
-      );
-
-      console.log("");
-      console.log(
-        "  " +
-          getStatusIcon(data.status) +
-          " " +
-          pc.bold("Overall Status: ") +
-          getStatusColor(data.status)(data.status.toUpperCase())
-      );
-      console.log("");
-
-      console.log(pc.bold("  Services:"));
-      console.log("");
-
-      const serviceRows: string[][] = [];
-
-      // Database
-      const dbStatus =
-        getStatusIcon(data.services.database.status) +
-        " " +
-        getStatusColor(data.services.database.status)(
-          data.services.database.status
-        );
-      const dbDetails = data.services.database.message || "-";
-      serviceRows.push(["Database", dbStatus, dbDetails]);
-
-      // OpenAI
-      const openaiStatus =
-        getStatusIcon(data.services.openai.status) +
-        " " +
-        getStatusColor(data.services.openai.status)(
-          data.services.openai.status
-        );
-      const openaiDetails =
-        [
-          data.services.openai.configured
-            ? pc.green("configured")
-            : pc.red("not configured"),
-          data.services.openai.message || "",
-        ]
-          .filter(Boolean)
-          .join(" • ") || "-";
-      serviceRows.push(["OpenAI", openaiStatus, openaiDetails]);
-
-      // MCP Jira
-      const mcpStatus =
-        getStatusIcon(data.services.mcp_jira.status) +
-        " " +
-        getStatusColor(data.services.mcp_jira.status)(
-          data.services.mcp_jira.status
-        );
-      const mcpDetails = [];
-      if (data.services.mcp_jira.enabled !== undefined) {
-        mcpDetails.push(
-          data.services.mcp_jira.enabled
-            ? pc.green("enabled")
-            : pc.gray("disabled")
-        );
-      }
-      if (data.services.mcp_jira.connected !== undefined) {
-        mcpDetails.push(
-          data.services.mcp_jira.connected
-            ? pc.green("connected")
-            : pc.red("not connected")
-        );
-      }
-      if (data.services.mcp_jira.initialized !== undefined) {
-        mcpDetails.push(
-          data.services.mcp_jira.initialized
-            ? pc.green("initialized")
-            : pc.yellow("not initialized")
-        );
-      }
-      if (data.services.mcp_jira.toolCount !== undefined) {
-        mcpDetails.push(pc.cyan(`${data.services.mcp_jira.toolCount} tools`));
-      }
-      if (data.services.mcp_jira.message) {
-        mcpDetails.push(pc.gray(data.services.mcp_jira.message));
-      }
-      serviceRows.push(["MCP Jira", mcpStatus, mcpDetails.join(" • ") || "-"]);
-
-      const servicesTable = createTable(
-        ["Service", "Status", "Details"],
-        serviceRows,
-        {
-          colWidths: [15, 20, 40],
+    try {
+      if (serverName) {
+        const normalized = serverName.toLowerCase() as ServiceName;
+        if (!SUPPORTED_SERVICES.includes(normalized)) {
+          throw new Error(
+            `Invalid server name: ${serverName}. Supported: ${SUPPORTED_SERVICES.join(
+              ", "
+            )}`
+          );
         }
-      );
 
-      console.log(servicesTable);
-      console.log("");
+        const response = await apiFetch(`/mcp/servers/${normalized}/status`);
 
-      if (data.status === "healthy") {
-        Logger.success("All systems operational");
-      } else if (data.status === "degraded") {
-        Logger.warn("Some services are experiencing issues");
+        if (!response.ok) {
+          throw new Error(
+            `Failed to get server status: ${response.status} ${response.statusText}`
+          );
+        }
+
+        const data = (await response.json()) as ServerStatus;
+        s.stop();
+
+        if (outputJson) {
+          console.log(JSON.stringify(data, null, 2));
+        } else {
+          console.log("");
+          console.log(
+            boxen(pc.bold(`MCP Server: ${getServiceDisplayName(normalized)}`), {
+              padding: { left: 2, right: 2, top: 0, bottom: 0 },
+              margin: { left: 2, right: 2 },
+              borderColor: data.connected ? "green" : "red",
+              borderStyle: "round",
+            })
+          );
+
+          console.log("");
+          console.log(
+            "  " +
+              getStatusIcon(data.connected) +
+              " " +
+              pc.bold("Status: ") +
+              getStatusColor(data.connected)(
+                data.connected ? "Connected" : "Not Connected"
+              )
+          );
+          console.log("");
+          console.log(
+            "  " +
+              pc.bold("Tools: ") +
+              pc.cyan(`${data.tools.length} available`)
+          );
+          console.log("");
+
+          if (data.tools.length > 0) {
+            const rows = data.tools.map((t) => [
+              t.name,
+              t.description || pc.gray("-"),
+            ]);
+            console.log(
+              createTable(["Name", "Description"], rows, {
+                colWidths: [30, 40],
+              })
+            );
+            console.log("");
+          }
+        }
       } else {
-        Logger.error("Critical systems are down");
+        const statuses: Record<string, ServerStatus> = {};
+
+        for (const service of SUPPORTED_SERVICES) {
+          try {
+            const response = await apiFetch(`/mcp/servers/${service}/status`);
+            if (response.ok) {
+              statuses[service] = (await response.json()) as ServerStatus;
+            } else {
+              statuses[service] = {
+                serverName: service,
+                connected: false,
+                tools: [],
+              };
+            }
+          } catch {
+            statuses[service] = {
+              serverName: service,
+              connected: false,
+              tools: [],
+            };
+          }
+        }
+
+        s.stop();
+
+        if (outputJson) {
+          console.log(JSON.stringify(statuses, null, 2));
+        } else {
+          console.log("");
+          console.log(
+            boxen(pc.bold("MCP Server Status"), {
+              padding: { left: 2, right: 2, top: 0, bottom: 0 },
+              margin: { left: 2, right: 2 },
+              borderColor: "cyan",
+              borderStyle: "round",
+            })
+          );
+
+          console.log("");
+
+          const serviceRows: string[][] = [];
+
+          for (const service of SUPPORTED_SERVICES) {
+            const status = statuses[service];
+            const displayName = getServiceDisplayName(service);
+            const statusIcon = getStatusIcon(status.connected);
+            const statusText = getStatusColor(status.connected)(
+              status.connected ? "Connected" : "Not Connected"
+            );
+            const toolsCount = pc.cyan(`${status.tools.length} tools`);
+
+            serviceRows.push([
+              displayName,
+              statusIcon + " " + statusText,
+              toolsCount,
+            ]);
+          }
+
+          console.log(
+            createTable(["Server", "Status", "Tools"], serviceRows, {
+              colWidths: [20, 25, 20],
+            })
+          );
+          console.log("");
+
+          for (const service of SUPPORTED_SERVICES) {
+            const status = statuses[service];
+            if (status.tools.length > 0) {
+              console.log(pc.bold(`${getServiceDisplayName(service)} Tools:`));
+              const rows = status.tools.map((t) => [
+                t.name,
+                t.description || pc.gray("-"),
+              ]);
+              console.log(
+                createTable(["Name", "Description"], rows, {
+                  colWidths: [30, 40],
+                })
+              );
+              console.log("");
+            }
+          }
+        }
       }
+    } catch (error) {
+      s.stop();
+      throw error;
     }
   } catch (error) {
-    // Error handling is done by apiFetch
     Logger.error((error as Error).message);
     process.exit(1);
   }
