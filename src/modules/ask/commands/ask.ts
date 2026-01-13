@@ -1,6 +1,5 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
 import { apiFetch } from "../../../core/apiClient.js";
 import { ChatRequest, ChatResponse, ErrorResponse } from "../types.js";
@@ -21,9 +20,13 @@ async function sendMessage(
   });
 
   if (!response.ok) {
-    const errorData = (await response
-      .json()
-      .catch(() => ({}))) as ErrorResponse;
+    const errorText = await response.text().catch(() => "");
+    let errorData: ErrorResponse = {};
+    try {
+      errorData = JSON.parse(errorText) as ErrorResponse;
+    } catch {
+      errorData = { message: errorText || response.statusText };
+    }
     throw new Error(
       errorData.error ||
         errorData.message ||
@@ -37,6 +40,7 @@ async function sendMessage(
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
     let fullResponse = "";
+    let buffer = "";
 
     if (!reader) {
       throw new Error("Failed to read streaming response");
@@ -44,10 +48,44 @@ async function sendMessage(
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        if (buffer) {
+          const lines = buffer.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6).trim();
+              if (data && data !== "[DONE]") {
+                try {
+                  const parsed = JSON.parse(data) as ChatResponse;
+                  if (parsed.response) {
+                    fullResponse += parsed.response;
+                  }
+                } catch {
+                  if (data && data !== "[DONE]") {
+                    fullResponse += data;
+                  }
+                }
+              }
+            } else if (line.trim() && !line.startsWith(":")) {
+              try {
+                const parsed = JSON.parse(line) as ChatResponse;
+                if (parsed.response) {
+                  fullResponse += parsed.response;
+                }
+              } catch {
+                if (line.trim()) {
+                  fullResponse += line;
+                }
+              }
+            }
+          }
+        }
+        break;
+      }
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
       for (const line of lines) {
         if (line.startsWith("data: ")) {
@@ -59,14 +97,23 @@ async function sendMessage(
             try {
               const parsed = JSON.parse(data) as ChatResponse;
               if (parsed.response) {
-                process.stdout.write(parsed.response);
                 fullResponse += parsed.response;
               }
             } catch {
               if (data) {
-                process.stdout.write(data);
                 fullResponse += data;
               }
+            }
+          }
+        } else if (line.trim() && !line.startsWith(":")) {
+          try {
+            const parsed = JSON.parse(line) as ChatResponse;
+            if (parsed.response) {
+              fullResponse += parsed.response;
+            }
+          } catch {
+            if (line.trim() && line !== "[DONE]") {
+              fullResponse += line;
             }
           }
         }
@@ -76,58 +123,61 @@ async function sendMessage(
     return { response: fullResponse };
   }
 
-  const data = (await response.json()) as ChatResponse;
-  return data;
+  const text = await response.text();
+
+  if (!text || !text.trim()) {
+    throw new Error("Empty response from server");
+  }
+
+  if (contentType.includes("application/json")) {
+    try {
+      const data = JSON.parse(text) as ChatResponse;
+      if (data.response) {
+        return data;
+      }
+      if (text.trim()) {
+        return { response: text };
+      }
+      throw new Error("Invalid JSON response: missing response field");
+    } catch (parseError) {
+      if (parseError instanceof Error && parseError.message.includes("Invalid JSON")) {
+        throw parseError;
+      }
+      return { response: text };
+    }
+  } else {
+    return { response: text };
+  }
 }
 
 async function renderConversation(
   messages: Array<{ role: "user" | "assistant"; content: string }>
 ): Promise<void> {
   console.clear();
-
   console.log("");
-  console.log(
-    pc.cyan("  Kay") +
-      pc.gray(" by ") +
-      pc.white("KYG Trade") +
-      pc.gray(" • ") +
-      pc.dim("AI assistant for Jira & Atlassian workflows")
-  );
+  console.log(`  ${pc.bold(pc.cyan("Kay"))} ${pc.dim("• Chat")}`);
   console.log("");
-
-  const conversationLines: string[] = [];
 
   for (const msg of messages) {
     if (msg.role === "user") {
-      conversationLines.push(
-        pc.bold(pc.green("You: ")) + pc.white(msg.content)
-      );
+      console.log(`  ${pc.dim("You")}`);
+      const lines = msg.content.split("\n");
+      lines.forEach((line) => {
+        console.log(`  ${pc.green("│")} ${pc.white(line)}`);
+      });
+      console.log("");
     } else {
+      console.log(`  ${pc.dim("Kay")}`);
       const renderedMarkdown = await renderMarkdown(msg.content);
       const lines = renderedMarkdown.split("\n");
-      conversationLines.push(pc.bold(pc.cyan("Kay:")));
       lines.forEach((line) => {
-        conversationLines.push(line);
+        console.log(`  ${pc.cyan("│")} ${line}`);
       });
+      console.log("");
     }
-    conversationLines.push("");
   }
 
-  const conversationContent = conversationLines.join("\n");
-
-  console.log(
-    boxen(conversationContent, {
-      padding: 1,
-      margin: 0,
-      borderColor: "cyan",
-      borderStyle: "round",
-      title: pc.bold(pc.cyan("Interactive Chat Mode")),
-      titleAlignment: "center",
-      fullscreen: (width) => [width, 0],
-    })
-  );
-
-  console.log(pc.gray("Type 'exit' or 'quit' to end the conversation"));
+  console.log(`  ${pc.dim("Type your message or 'exit' to end")}`);
   console.log("");
 }
 
@@ -147,12 +197,18 @@ async function interactiveChatMode(
       const data = await sendMessage(initialPrompt, messages, true);
       s.stop();
 
-      const responseText = data.response || "(No response)";
-      messages.push({ role: "assistant", content: responseText });
+      if (!data || !data.response || data.response.trim() === "") {
+        throw new Error("No response received from server");
+      }
+
+      messages.push({ role: "assistant", content: data.response });
       await renderConversation(messages);
     } catch (error) {
       s.stop();
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      Logger.error(errorMessage);
+      messages.push({ role: "assistant", content: `Error: ${errorMessage}` });
+      await renderConversation(messages);
     }
   } else {
     await renderConversation(messages);
@@ -166,14 +222,9 @@ async function interactiveChatMode(
 
     if (p.isCancel(userInput)) {
       console.clear();
-      console.log(
-        boxen(pc.cyan("Chat ended. Goodbye! 👋"), {
-          padding: 1,
-          margin: 1,
-          borderColor: "cyan",
-          borderStyle: "round",
-        })
-      );
+      console.log("");
+      console.log(`  ${pc.cyan("Goodbye!")}`);
+      console.log("");
       return;
     }
 
@@ -188,14 +239,9 @@ async function interactiveChatMode(
       trimmedInput.toLowerCase() === "quit"
     ) {
       console.clear();
-      console.log(
-        boxen(pc.cyan("Chat ended. Goodbye! 👋"), {
-          padding: 1,
-          margin: 1,
-          borderColor: "cyan",
-          borderStyle: "round",
-        })
-      );
+      console.log("");
+      console.log(`  ${pc.cyan("Goodbye!")}`);
+      console.log("");
       return;
     }
 
@@ -209,12 +255,17 @@ async function interactiveChatMode(
       const data = await sendMessage("", messages, true);
       s.stop();
 
-      const responseText = data.response || "(No response)";
-      messages.push({ role: "assistant", content: responseText });
+      if (!data || !data.response || data.response.trim() === "") {
+        throw new Error("No response received from server");
+      }
+
+      messages.push({ role: "assistant", content: data.response });
       await renderConversation(messages);
     } catch (error) {
       s.stop();
-      Logger.error((error as Error).message);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      Logger.error(errorMessage);
+      messages.push({ role: "assistant", content: `Error: ${errorMessage}` });
       await renderConversation(messages);
     }
   }
@@ -259,20 +310,12 @@ export async function askCommand(
       console.log(JSON.stringify(data, null, 2));
     } else {
       console.log("");
-
+      console.log(`  ${pc.dim("Kay")}`);
       const renderedMarkdown = await renderMarkdown(data.response);
-
-      console.log(
-        boxen(renderedMarkdown, {
-          padding: { left: 2, right: 2, top: 0, bottom: 0 },
-          margin: { left: 2 },
-          borderColor: "cyan",
-          borderStyle: "round",
-          title: pc.bold(pc.cyan("Kay")),
-          titleAlignment: "left",
-        })
-      );
-
+      const lines = renderedMarkdown.split("\n");
+      lines.forEach((line) => {
+        console.log(`  ${pc.cyan("│")} ${line}`);
+      });
       console.log("");
     }
   } catch (error) {

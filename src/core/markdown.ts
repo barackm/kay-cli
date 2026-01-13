@@ -11,20 +11,20 @@ function initialize() {
   marked.use(
     markedTerminal({
       reflowText: true,
-      width: process.stdout.columns || 100,
+      width: (process.stdout.columns || 100) - 8,
       showSectionPrefix: false,
       tab: 2,
       strong: (text: string) => chalk.bold(text),
       em: (text: string) => chalk.italic(text),
-      link: chalk.blue,
-      href: chalk.blue.underline,
-      code: chalk.yellow,
-      codespan: chalk.yellow,
-      heading: chalk.green.bold,
-      firstHeading: chalk.magenta.underline.bold,
+      link: chalk.cyan.underline,
+      href: chalk.cyan.underline,
+      code: chalk.dim,
+      codespan: chalk.dim,
+      heading: chalk.bold,
+      firstHeading: chalk.bold,
       paragraph: chalk.reset,
       listitem: chalk.reset,
-      blockquote: chalk.gray.italic,
+      blockquote: chalk.dim.italic,
     }) as any
   );
 

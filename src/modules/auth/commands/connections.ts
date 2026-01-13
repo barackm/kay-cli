@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
+import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
 import { ServiceName, ServerStatusResponse } from "../types.js";
 import { apiFetch } from "../../../core/apiClient.js";
@@ -82,9 +83,6 @@ export async function connectionsCommand(
     }
 
     console.log("");
-    console.log(pc.bold(pc.cyan("MCP Server Connections")));
-    console.log("");
-
     const headers = ["Service", "Status", "Tools"];
     const rows = SUPPORTED_SERVICES.map((service) => {
       const displayName = getServiceDisplayName(service);
@@ -99,7 +97,15 @@ export async function connectionsCommand(
       colWidths: [20, 20, 40],
     });
 
-    console.log(table);
+    console.log(
+      boxen(table, {
+        padding: 1,
+        margin: 1,
+        borderStyle: "round",
+        borderColor: "cyan",
+        title: pc.bold(pc.cyan("MCP Server Connections")),
+      })
+    );
     console.log("");
   } catch (error) {
     p.cancel((error as Error).message);

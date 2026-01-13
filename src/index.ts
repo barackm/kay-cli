@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import boxen from "boxen";
 import { loadModules } from "./core/moduleLoader.js";
 import { Logger } from "./core/logger.js";
 import { CommandRegistry } from "./core/commandRegistry.js";
@@ -17,82 +16,60 @@ function showHelp(registry: CommandRegistry, commandName?: string) {
     }
 
     console.log("");
-    console.log(pc.bold(pc.cyan(`${command.name}`)));
+    console.log(`  ${pc.bold(pc.cyan(command.name))}`);
     if (command.description) {
-      console.log(pc.gray(command.description));
+      console.log(`  ${pc.dim(command.description)}`);
     }
     console.log("");
-
-    console.log(pc.bold("Usage:"));
+    console.log(`  ${pc.dim("Usage")}`);
     console.log(
-      `  ${pc.white(`kay ${command.name}`)} ${pc.gray("[options] [args]")}`
+      `    ${pc.cyan("$")} kay ${pc.white(command.name)} ${pc.dim("[options]")}`
     );
     console.log("");
 
     if (command.options && command.options.length > 0) {
-      console.log(pc.bold("Options:"));
+      console.log(`  ${pc.dim("Options")}`);
       command.options.forEach((opt) => {
         const flag =
-          opt.type === "boolean" ? `--${opt.name}` : `--${opt.name} <value>`;
-        console.log(
-          `  ${pc.cyan(flag.padEnd(25))} ${pc.gray(opt.description)}`
-        );
+          opt.type === "boolean"
+            ? `--${opt.name}`
+            : `--${opt.name} ${pc.dim("<value>")}`;
+        console.log(`    ${pc.cyan(flag.padEnd(20))} ${pc.dim(opt.description)}`);
       });
       console.log("");
     }
   } else {
-    console.clear();
-    console.log(
-      boxen(
-        pc.bold(pc.white("Welcome to Kay CLI — your intelligent assistant")),
-        {
-          padding: 1,
-          borderColor: "cyan",
-          borderStyle: "double",
-        }
-      )
-    );
-
-    console.log(pc.gray("Version:"), pc.white("1.0.0"));
-    console.log(pc.gray("Author:"), pc.white("KYG Trade AIS Team"));
+    console.log("");
+    console.log(`  ${pc.bold(pc.cyan("Kay"))}`);
+    console.log(`  ${pc.dim("AI assistant for Jira & Atlassian")}`);
+    console.log("");
 
     const commands = registry.getAllCommands();
 
     if (commands.length > 0) {
-      console.log("");
-      console.log(pc.bold(pc.cyan("✨ Available Commands:")));
+      console.log(`  ${pc.dim("Commands")}`);
       console.log("");
       commands.forEach((cmd) => {
+        const cmdName = cmd.alias
+          ? `${cmd.name}${pc.dim(", " + cmd.alias)}`
+          : cmd.name;
         console.log(
-          `  ${pc.bold(pc.white(cmd.name.padEnd(15)))} ${pc.gray(
-            cmd.description || "No description"
-          )}`
+          `    ${pc.cyan(cmdName.padEnd(18))} ${pc.dim(cmd.description || "")}`
         );
       });
+      console.log("");
     }
 
+    console.log(`  ${pc.dim("Usage")}`);
+    console.log(`    ${pc.cyan("$")} kay ${pc.white("<command>")} ${pc.dim("[options]")}`);
+    console.log(`    ${pc.cyan("$")} kay help ${pc.white("<command>")}`);
     console.log("");
-    console.log(pc.bold(pc.cyan("💡 Usage:")));
-    console.log(
-      `  ${pc.white("kay <command>")}          ${pc.gray("Run a command")}`
-    );
-    console.log(
-      `  ${pc.white("kay help <command>")}     ${pc.gray(
-        "Show help for a command"
-      )}`
-    );
-    console.log(
-      `  ${pc.white("kay <command> --help")}   ${pc.gray(
-        "Show help for a command"
-      )}`
-    );
+    console.log(`  ${pc.dim("v1.0.0")}`);
     console.log("");
   }
 }
 
 async function main() {
-  p.intro(pc.bgCyan(pc.black("  Kay CLI  ")));
-
   const spinner = p.spinner();
   spinner.start("Loading modules...");
   await loadModules(registry);
@@ -111,66 +88,47 @@ async function main() {
   }
 
   if (!parsed.command) {
-    console.clear();
-    console.log(
-      boxen(
-        pc.bold(pc.white("Welcome to Kay CLI — your intelligent assistant")),
-        {
-          padding: 1,
-          borderColor: "cyan",
-          borderStyle: "double",
-        }
-      )
-    );
-
-    console.log(pc.gray("Version:"), pc.white("1.0.0"));
-    console.log(pc.gray("Author:"), pc.white("KYG Trade AIS Team"));
+    console.log("");
+    console.log(`  ${pc.bold(pc.cyan("Kay"))}`);
+    console.log(`  ${pc.dim("AI assistant for Jira & Atlassian")}`);
+    console.log("");
 
     const commands = registry.getAllCommands();
 
     if (commands.length > 0) {
-      console.log(pc.bold(pc.cyan("✨ Available Commands:")));
+      console.log(`  ${pc.dim("Commands")}`);
       console.log("");
       commands.forEach((cmd) => {
+        const cmdName = cmd.alias
+          ? `${cmd.name}${pc.dim(", " + cmd.alias)}`
+          : cmd.name;
         console.log(
-          `${pc.green("•")} ${pc.bold(pc.white(cmd.name))}${
-            cmd.alias ? pc.gray(` (${cmd.alias})`) : ""
-          }  ${pc.dim("— " + (cmd.description || "No description"))}`
+          `    ${pc.cyan(cmdName.padEnd(18))} ${pc.dim(cmd.description || "")}`
         );
       });
-    } else {
-      console.log(pc.yellow("⚠️  No commands loaded yet."));
+      console.log("");
     }
 
-    console.log("\n" + pc.cyan("💡 Tips:"));
-    console.log(
-      pc.gray("  • Type ") +
-        pc.white("kay <command>") +
-        pc.gray(" to run a command.")
-    );
-    console.log(
-      pc.gray("  • Type ") +
-        pc.white("kay help") +
-        pc.gray(" to view more usage info.")
-    );
+    console.log(`  ${pc.dim("Usage")}`);
+    console.log(`    ${pc.cyan("$")} kay ${pc.white("<command>")} ${pc.dim("[options]")}`);
+    console.log(`    ${pc.cyan("$")} kay help ${pc.white("<command>")}`);
+    console.log("");
+    console.log(`  ${pc.dim("v1.0.0")}`);
+    console.log("");
 
-    p.outro(pc.green("Kay is ready to assist you 🚀"));
     return;
   }
 
   const command = registry.getCommand(parsed.command);
   if (!command) {
     Logger.error(`Command "${parsed.command}" not found`);
-    p.cancel(`Command "${parsed.command}" not found`);
     process.exit(1);
   }
 
   try {
     await command.action(parsed.args, parsed.options);
-    p.outro(pc.green("Done! 🚀"));
   } catch (error) {
     Logger.error((error as Error).message);
-    p.cancel((error as Error).message);
     process.exit(1);
   }
 }

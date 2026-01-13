@@ -5,23 +5,18 @@ import { authClient } from "../authClient.js";
 import { promptEmail, promptPassword } from "../utils/prompts.js";
 
 export async function loginCommand(
-  args: string[],
-  options: Record<string, string | boolean>
+  _args: string[],
+  _options: Record<string, string | boolean>
 ): Promise<void> {
   try {
     if (authClient.isAuthenticated()) {
-      Logger.warn("You are already logged in.");
-      console.log("");
-      console.log(
-        pc.gray("Run ") +
-          pc.cyan("kay whoami") +
-          pc.gray(" to see your current user information.")
-      );
+      Logger.warn("Already logged in");
+      console.log(`  ${pc.dim("Run")} ${pc.cyan("kay whoami")} ${pc.dim("to see your info")}`);
       console.log("");
       return;
     }
 
-    Logger.info("Please login to continue.");
+    Logger.info("Please login to continue");
     console.log("");
 
     const email = await promptEmail();
@@ -34,21 +29,18 @@ export async function loginCommand(
       const loginResponse = await authClient.login(email, password);
       spinner.stop();
 
-      Logger.success("Logged in successfully!");
+      Logger.success("Logged in successfully");
       console.log("");
-      console.log(pc.bold(pc.cyan("User Information:")));
-      console.log(`  ${pc.bold("Email:")}    ${loginResponse.user.email}`);
-      console.log(
-        `  ${pc.bold("Name:")}     ${loginResponse.user.firstName} ${loginResponse.user.lastName}`
-      );
-      console.log(`  ${pc.bold("User ID:")}  ${loginResponse.user.userid}`);
+      console.log(`  ${pc.dim("Email")}     ${pc.white(loginResponse.user.email)}`);
+      console.log(`  ${pc.dim("Name")}      ${pc.white(loginResponse.user.firstName + " " + loginResponse.user.lastName)}`);
+      console.log(`  ${pc.dim("User ID")}   ${pc.white(String(loginResponse.user.userid))}`);
       console.log("");
     } catch (error) {
       spinner.stop();
       throw error;
     }
   } catch (error) {
-    p.cancel((error as Error).message);
+    Logger.error((error as Error).message);
     process.exit(1);
   }
 }

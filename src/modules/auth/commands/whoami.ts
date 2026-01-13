@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
+import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
 import { UserResponse } from "../types.js";
 import { apiFetch } from "../../../core/apiClient.js";
@@ -38,32 +39,56 @@ export async function whoamiCommand(
     }
 
     console.log("");
-    console.log(pc.bold(pc.cyan("User Information")));
-    console.log("");
 
     if (!data.user) {
-      console.log(pc.gray("No user information available."));
+      console.log(
+        boxen(pc.gray("No user information available."), {
+          padding: 1,
+          margin: 1,
+          borderStyle: "round",
+          borderColor: "gray",
+          title: pc.bold(pc.cyan("User Information")),
+        })
+      );
       console.log("");
       return;
     }
 
     const user = data.user;
+    const lines: string[] = [];
 
     if (user.email) {
-      console.log(`  ${pc.bold("Email:")}    ${user.email}`);
+      lines.push(`${pc.dim("Email:")}    ${pc.white(user.email)}`);
     }
     if (user.id) {
-      console.log(`  ${pc.bold("ID:")}       ${user.id}`);
+      lines.push(`${pc.dim("ID:")}       ${pc.white(user.id)}`);
     }
     if (user.externalUserId) {
-      console.log(`  ${pc.bold("External User ID:")} ${user.externalUserId}`);
+      lines.push(
+        `${pc.dim("External User ID:")} ${pc.white(
+          String(user.externalUserId)
+        )}`
+      );
     }
     if (user.createdAt) {
-      console.log(
-        `  ${pc.bold("Created:")}  ${new Date(user.createdAt).toLocaleString()}`
+      lines.push(
+        `${pc.dim("Created:")}  ${pc.white(
+          new Date(user.createdAt).toLocaleString()
+        )}`
       );
     }
 
+    if (lines.length > 0) {
+      console.log(
+        boxen(lines.join("\n"), {
+          padding: 1,
+          margin: 1,
+          borderStyle: "round",
+          borderColor: "cyan",
+          title: pc.bold(pc.cyan("User Information")),
+        })
+      );
+    }
     console.log("");
   } catch (error) {
     p.cancel((error as Error).message);

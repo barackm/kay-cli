@@ -1,6 +1,5 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import boxen from "boxen";
 import { Logger } from "../../../core/logger.js";
 import { apiFetch } from "../../../core/apiClient.js";
 import { ServerStatus } from "../types.js";
@@ -61,29 +60,18 @@ export async function healthCommand(
         } else {
           console.log("");
           console.log(
-            boxen(pc.bold(`MCP Server: ${getServiceDisplayName(normalized)}`), {
-              padding: { left: 2, right: 2, top: 0, bottom: 0 },
-              margin: { left: 2, right: 2 },
-              borderColor: data.connected ? "green" : "red",
-              borderStyle: "round",
-            })
-          );
-
-          console.log("");
-          console.log(
-            "  " +
-              getStatusIcon(data.connected) +
-              " " +
-              pc.bold("Status: ") +
-              getStatusColor(data.connected)(
-                data.connected ? "Connected" : "Not Connected"
-              )
+            pc.dim(`💚 MCP Server: ${getServiceDisplayName(normalized)}`)
           );
           console.log("");
           console.log(
-            "  " +
-              pc.bold("Tools: ") +
-              pc.cyan(`${data.tools.length} available`)
+            `  ${getStatusIcon(data.connected)} ${pc.dim(
+              "Status:"
+            )} ${getStatusColor(data.connected)(
+              data.connected ? "Connected" : "Not Connected"
+            )}`
+          );
+          console.log(
+            `  ${pc.dim("Tools:")} ${pc.cyan(`${data.tools.length} available`)}`
           );
           console.log("");
 
@@ -130,15 +118,7 @@ export async function healthCommand(
           console.log(JSON.stringify(statuses, null, 2));
         } else {
           console.log("");
-          console.log(
-            boxen(pc.bold("MCP Server Status"), {
-              padding: { left: 2, right: 2, top: 0, bottom: 0 },
-              margin: { left: 2, right: 2 },
-              borderColor: "cyan",
-              borderStyle: "round",
-            })
-          );
-
+          console.log(pc.dim("💚 MCP Server Status:"));
           console.log("");
 
           const serviceRows: string[][] = [];
@@ -169,7 +149,10 @@ export async function healthCommand(
           for (const service of SUPPORTED_SERVICES) {
             const status = statuses[service];
             if (status.tools.length > 0) {
-              console.log(pc.bold(`${getServiceDisplayName(service)} Tools:`));
+              console.log(
+                pc.dim(`🔧 ${getServiceDisplayName(service)} Tools:`)
+              );
+              console.log("");
               const rows = status.tools.map((t) => [
                 t.name,
                 t.description || pc.gray("-"),
