@@ -140,7 +140,10 @@ async function sendMessage(
       }
       throw new Error("Invalid JSON response: missing response field");
     } catch (parseError) {
-      if (parseError instanceof Error && parseError.message.includes("Invalid JSON")) {
+      if (
+        parseError instanceof Error &&
+        parseError.message.includes("Invalid JSON")
+      ) {
         throw parseError;
       }
       return { response: text };
@@ -205,7 +208,8 @@ async function interactiveChatMode(
       await renderConversation(messages);
     } catch (error) {
       s.stop();
-      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       Logger.error(errorMessage);
       messages.push({ role: "assistant", content: `Error: ${errorMessage}` });
       await renderConversation(messages);
@@ -263,7 +267,8 @@ async function interactiveChatMode(
       await renderConversation(messages);
     } catch (error) {
       s.stop();
-      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       Logger.error(errorMessage);
       messages.push({ role: "assistant", content: `Error: ${errorMessage}` });
       await renderConversation(messages);

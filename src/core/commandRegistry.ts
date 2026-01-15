@@ -55,14 +55,18 @@ export class CommandRegistry {
       if (arg.startsWith("--") || arg.startsWith("-")) {
         const key = arg.replace(/^-+/, "");
         const nextArg = argv[i + 1];
-        
+
         if (args.length > 0) {
           const command = this.getCommand(args[0]);
-          const optionDef = command?.options?.find(opt => opt.name === key);
-          
+          const optionDef = command?.options?.find((opt) => opt.name === key);
+
           if (optionDef?.type === "boolean") {
             options[key] = true;
-          } else if (nextArg && !nextArg.startsWith("-") && !nextArg.includes(" ")) {
+          } else if (
+            nextArg &&
+            !nextArg.startsWith("-") &&
+            !nextArg.includes(" ")
+          ) {
             options[key] = nextArg;
             i++;
           } else {
